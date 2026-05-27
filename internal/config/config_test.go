@@ -71,3 +71,37 @@ teams: []
 		t.Errorf("ManagerTimeoutSeconds default: got %d, want 300", cfg.ManagerTimeoutSeconds)
 	}
 }
+
+func TestLoad_ErrorsOnMissingFile(t *testing.T) {
+	_, err := Load("/nonexistent/path/to/config.yaml")
+	if err == nil {
+		t.Fatal("expected error when file does not exist")
+	}
+}
+
+func TestLoad_ErrorsOnInvalidYAML(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	if err := os.WriteFile(path, []byte("invalid: [yaml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error on malformed YAML")
+	}
+}
+
+func TestLoad_ErrorsOnMissingTeamName(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	yaml := `workspace_slug: x
+teams:
+  - repo_url: git@github.com:org/test.git
+    repo_path: repos/test
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected error on missing team name")
+	}
+}
