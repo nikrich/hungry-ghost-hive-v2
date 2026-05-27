@@ -88,7 +88,7 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 		opts.ClaudeBinary,
 		"--print",
 		"--permission-mode", "acceptEdits",
-		"--append-system-prompt", opts.ManagerPrompt,
+		opts.ManagerPrompt,
 	)
 	cmd.Dir = opts.WorkspaceRoot
 	cmd.Stdout = logFile
