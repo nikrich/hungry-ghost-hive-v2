@@ -1,6 +1,6 @@
-# Binaries
-hive
-hive-watchdog
+# Binaries (root-only — leading slash so cmd/hive/ stays trackable)
+/hive
+/hive-watchdog
 *.exe
 *.dll
 *.so
