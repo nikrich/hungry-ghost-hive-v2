@@ -96,10 +96,20 @@ If live worker count < `max_workers` from config AND there's a pending story:
 
 For each subdirectory in `.hive/agents/`:
 
-- Read its `worker.pid`. Check if the process is alive: `kill -0 <pid> 2>/dev/null; echo $?` — if `0`, alive; if `1`, dead.
-- If dead:
-  - Find the corresponding `agent-state` drawer via `mempalace_list_drawers` and locate the one with `title = agent-<id>`.
-  - If its `status` is still `live`, update via `mempalace_update_drawer`: `status=exited`, `exit_reason=completed`, `ended_at=<iso-now>`. (Phase 1.1 assumes success — Phase 4 will add stuck detection.)
+- Read `worker.pid`. Check if the process is alive: `kill -0 <pid> 2>/dev/null && echo alive || echo dead`. If `alive`, skip — worker still running.
+- If `dead`, this is a reap candidate. Recovery depends on whether the worker actually finished its work:
+  - Find the agent-state drawer via `mempalace_list_drawers` (wing `hive`, room `agents`); locate the one with `title = agent-<id>`.
+  - Note its `current_story` value. Find that story's drawer via `mempalace_list_drawers` (wing `hive`, room `stories`).
+  - **If `story.status` is `review` or `merged`:** the worker completed successfully. Update the agent-state via `mempalace_update_drawer`: `status=exited`, `exit_reason=completed`, `ended_at=<iso-now>`.
+  - **If `story.status` is `assigned`:** the worker abandoned the story (died before flipping to `review`). Recovery:
+    - Read `story.retry_count` (treat missing/null as 0).
+    - **If `retry_count < 3`:** update the story via `mempalace_update_drawer`: `status=pending`, `assigned_to=null`, `retry_count=<retry_count + 1>`. Update agent-state: `status=exited`, `exit_reason=abandoned`, `ended_at=<iso-now>`.
+    - **If `retry_count >= 3`:** the story is stuck for human review. Update story: `status=blocked`, `retry_count=<retry_count + 1>`. File an `escalation` drawer via `mempalace_add_drawer`:
+      - wing: `hive`, room: `escalations`
+      - title: `story "<story title>" exhausted 3 retries`
+      - frontmatter: `type: escalation`, `story: <story title>`, `status: open`, `escalated_at: <iso-now>`
+      - body: Markdown noting each agent attempt — look up all prior `agent-state` drawers in room `agents` whose `current_story` matches; list their agent IDs and `session_path` values (from `.hive/agents/<id>/session.txt` if still present, otherwise from the drawer's `session_path` field) for transcript review.
+    - Update agent-state: `status=exited`, `exit_reason=abandoned`, `ended_at=<iso-now>`.
   - Best-effort cleanup of the worktree: `git -C repos/<team> worktree remove ../<team>--junior-<id> --force` (ignore failure).
   - Remove the directory: `rm -rf .hive/agents/<id>`.
 
@@ -144,6 +154,7 @@ Before you exit, answer these:
 - For each new requirement, did I add a `requirement` drawer AND a `story` drawer?
 - If I spawned a worker, did I add an `agent-state` drawer AND update the story to `assigned`?
 - For each reaped worker, did I update its `agent-state` to `exited`?
+- For each abandoned worker (story still `assigned` when reaped), did I revert the story to `pending` with `retry_count` incremented, OR escalate it to `blocked` with a new escalation drawer if retry_count reached 3?
 - Did I write a diary entry?
 
 If any answer is "no" without a clear reason (e.g. "no pending stories so no spawn"), go back and complete it. Do not exit with the work half-done — the next tick will not know to retry.
