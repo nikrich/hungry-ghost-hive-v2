@@ -7,24 +7,33 @@ description: Use when spawned as a hungry-ghost-hive-v2 junior worker. This is t
 
 ## YOU MUST / YOU MUST NOT
 
-- **YOU MUST** read `.hive/agents/<YOUR_ID>/context.md` first — it contains your agent ID, the story, the team, and the branch.
+- **YOU MUST** cd into your worktree first (Step 0).
+- **YOU MUST** read `../../.hive/agents/<YOUR_ID>/context.md` first — it contains your agent ID, the story, the team, and the branch.
 - **YOU MUST** implement exactly one story. Do not pick up other pending stories. Do not invoke the manager skill.
 - **YOU MUST** commit and push your work, then open a PR via `gh pr create` (follow the `tasks/creating-a-pr.md` skill).
 - **YOU MUST** update your `agent-state` drawer to `status: exited` AND update the story drawer to `status: review, pr_url: <url>` before exiting.
 - **YOU MUST** exit cleanly when done. The manager reaps you on the next tick.
 - **YOU MUST NOT** prompt the user for input — permission-bypass mode is active.
 
-Your cwd is your git worktree. Your branch already exists (the manager created it).
+Your spawn cwd is the workspace root. Step 0 directs you to cd into your worktree. Your branch already exists (the manager created it).
 
 ## Procedure
+
+### 0. Enter your worktree
+
+Your spawn cwd is the workspace root (not the worktree). The manager's prompt told you your worktree path (`repos/<team>--junior-<YOUR_ID>`). Before doing anything else:
+
+```bash
+cd repos/<team>--junior-<YOUR_ID>
+```
+
+All subsequent commands operate from inside the worktree. References to `.hive/agents/<YOUR_ID>/context.md` are now at `../../.hive/agents/<YOUR_ID>/context.md` (two levels up from the worktree).
 
 ### 1. Read your context
 
 ```bash
-cat .hive/agents/<YOUR_ID>/context.md
+cat ../../.hive/agents/<YOUR_ID>/context.md
 ```
-
-(The path may need adjustment depending on where the manager spawned you — your cwd is the worktree, which is typically `repos/<team>--junior-<id>`, so the workspace root is `../..` from there. The exact path is in the manager's invocation prompt.)
 
 ### 2. Orient
 
