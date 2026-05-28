@@ -23,7 +23,7 @@ For each file in `.hive/inbox/` (excluding the `processed/` subdir):
 
 - Read the file's contents — one requirement per file.
 - File a `requirement` drawer via `mempalace_add_drawer`:
-  - wing: `hive-<workspace-slug>` (read `workspace_slug` from `.hive/config.yaml`)
+  - wing: `hive`
   - room: `requirements`
   - frontmatter: `type: requirement`, `status: pending`, `created_at: <iso-now>`
   - title: a short summary of the requirement text
@@ -39,8 +39,8 @@ For each file in `.hive/inbox/` (excluding the `processed/` subdir):
 
 Read current state:
 
-- `mempalace_list_drawers` wing=`hive-<slug>` room=`agents` → count drawers with `status=live`.
-- `mempalace_list_drawers` wing=`hive-<slug>` room=`stories` → drawers with `status=pending`, sorted by `created_at` ascending.
+- `mempalace_list_drawers` wing=`hive` room=`agents` → count drawers with `status=live`.
+- `mempalace_list_drawers` wing=`hive` room=`stories` → drawers with `status=pending`, sorted by `created_at` ascending.
 
 If live worker count < `max_workers` from config AND there's a pending story:
 
@@ -89,7 +89,7 @@ If live worker count < `max_workers` from config AND there's a pending story:
   find ~/.claude/projects -name "*.jsonl" -newer .hive/agents/<id>/started_at 2>/dev/null | head -1 > .hive/agents/<id>/session.txt
   ```
 - File the `agent-state` drawer via `mempalace_add_drawer`:
-  - wing: `hive-<slug>`, room: `agents`
+  - wing: `hive`, room: `agents`
   - frontmatter: `type: agent-state`, `status: live`, `role: junior`, `team: <team>`, `current_story: <story title>`, `worktree: repos/<team>--junior-<id>`, `pid: <WORKER_PID>`, `started_at: <iso-now>`
   - title: `agent-<id>`
 - Update the story drawer via `mempalace_update_drawer`: `status=assigned`, `assigned_to=<id>`.
