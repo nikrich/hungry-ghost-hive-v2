@@ -5,37 +5,72 @@ description: Use when spawned as a junior hive worker. Reads context, implements
 
 # Hive Junior — Worker Skill
 
-You are a **junior hive worker**. The manager spawned you to implement exactly one story. Your cwd is your git worktree.
+## YOU MUST / YOU MUST NOT
 
-## Setup
+- **YOU MUST** read `.hive/agents/<YOUR_ID>/context.md` first — it contains your agent ID, the story, the team, and the branch.
+- **YOU MUST** implement exactly one story. Do not pick up other pending stories. Do not invoke the manager skill.
+- **YOU MUST** commit and push your work, then open a PR via `gh pr create` (follow the `tasks/creating-a-pr.md` skill).
+- **YOU MUST** update your `agent-state` drawer to `status: exited` AND update the story drawer to `status: review, pr_url: <url>` before exiting.
+- **YOU MUST** exit cleanly when done. The manager reaps you on the next tick.
+- **YOU MUST NOT** prompt the user for input — permission-bypass mode is active.
 
-1. Read `.hive/agents/<YOUR_ID>/context.md` for: your agent ID, the story title and body, the team's repo path, the branch name to push.
-2. Read the team's `README.md`, `CLAUDE.md` (if present), and `package.json` / `go.mod` / `pyproject.toml` to orient yourself.
+Your cwd is your git worktree. Your branch already exists (the manager created it).
 
-## Doing the work
+## Procedure
 
-1. Make the minimum change required to satisfy the story's acceptance criteria.
-2. If the project has tests, write or update them to cover your change. Run them.
-3. Use the `tasks/creating-a-pr.md` task skill to commit + push + open a PR.
+### 1. Read your context
 
-## Filing your outcome
+```bash
+cat .hive/agents/<YOUR_ID>/context.md
+```
 
-After the PR is open:
+(The path may need adjustment depending on where the manager spawned you — your cwd is the worktree, which is typically `repos/<team>--junior-<id>`, so the workspace root is `../..` from there. The exact path is in the manager's invocation prompt.)
 
-1. Update your `agent-state` drawer via `mempalace_update_drawer`:
-   - wing: `hive-<workspace-slug>` (from `.hive/config.yaml`)
-   - room: `agents`
-   - find drawer where `title == agent-<YOUR_ID>` (use `mempalace_list_drawers` to locate)
-   - update fields: `status: exited`, `exit_reason: completed`, `ended_at: <iso>`
-2. Update the story drawer via `mempalace_update_drawer`:
-   - room: `stories`
-   - find drawer matching the story you worked on
-   - update: `status: review`, `pr_url: <url>`
-3. File a finding via `tasks/filing-a-finding.md` if you learned anything durable (a bug pattern, a missing setup step, a useful library trick). Otherwise skip.
+### 2. Orient
 
-## Constraints
+Read the team repo's:
+- `README.md` (project overview)
+- `CLAUDE.md` if present (project-specific instructions)
+- The relevant project manifest: `package.json` / `go.mod` / `pyproject.toml` / `Cargo.toml` / etc.
 
-- **One story only.** Do not pick up other pending stories.
-- **If you cannot complete the work**: file a finding describing what blocked you, then update your `agent-state` to `status: exited, exit_reason: escalated`. Do not push a half-finished PR. (Phase 2 introduces a proper escalation skill — for Phase 1, the finding drawer is enough.)
-- **Permission-bypass mode is active.** Do not try to prompt the user.
-- **Exit cleanly.** When done, just exit — the manager will reap you on the next tick.
+### 3. Implement
+
+Make the minimum change required by the story's acceptance criteria. If the project has tests, update them and run them.
+
+### 4. Commit + push + open PR
+
+Use the `tasks/creating-a-pr.md` skill. It covers commit message conventions, branch push, and `gh pr create`. Capture the PR URL from the `gh pr create` output.
+
+### 5. File your outcome
+
+- Find your `agent-state` drawer:
+  - `mempalace_list_drawers` wing=`hive-<workspace-slug>` (from `.hive/config.yaml`) room=`agents`
+  - Locate the one with `title = agent-<YOUR_ID>`
+- Update it via `mempalace_update_drawer`: `status=exited`, `exit_reason=completed`, `ended_at=<iso-now>`.
+- Find your story drawer:
+  - `mempalace_list_drawers` wing=same, room=`stories`
+  - Locate the one assigned to you (matches `current_story` from your agent-state)
+- Update via `mempalace_update_drawer`: `status=review`, `pr_url=<the URL from gh pr create>`.
+
+### 6. Optional: file a finding
+
+If you discovered something durable (a bug pattern, a non-obvious gotcha, a useful trick), use `tasks/filing-a-finding.md` to file it. Otherwise skip.
+
+### 7. Exit
+
+Just stop. The process ends; the manager reaps your PID on the next tick.
+
+## After completion checklist
+
+- Did the PR get created (you have a URL)?
+- Did you update your `agent-state` to `exited`?
+- Did you update the story to `review` with `pr_url` set?
+- Are you about to exit cleanly (no pending tool calls)?
+
+If any answer is "no" and you can complete it now, do so. If you genuinely cannot complete the work (blocker, missing context, can't push), do NOT push a half-done PR — instead:
+
+- Update your `agent-state` to `status=exited`, `exit_reason=escalated`
+- File a `finding` drawer (use `tasks/filing-a-finding.md`) describing the blocker
+- Exit
+
+Phase 2 will introduce a proper escalation skill; for Phase 1.1 the finding drawer is enough.
