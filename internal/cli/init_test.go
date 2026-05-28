@@ -137,3 +137,33 @@ func TestIsLocalNonBareRepo_FalseForNonExistentPath(t *testing.T) {
 		t.Error("expected false for non-existent path")
 	}
 }
+
+func TestEnsureMempalace_NoOpWhenAlreadyImportable(t *testing.T) {
+	// Construct a fake python3 on PATH that succeeds the importability check.
+	// Strategy: create a temp dir, write a script named "python3" that exits 0,
+	// chmod +x, prepend to PATH.
+	tmp := t.TempDir()
+	fake := filepath.Join(tmp, "python3")
+	script := "#!/bin/sh\nexit 0\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	pythonPath, err := ensureMempalace()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pythonPath != fake {
+		t.Errorf("expected python path %q, got %q", fake, pythonPath)
+	}
+}
+
+func TestEnsureMempalace_ErrorsWhenNoPython3(t *testing.T) {
+	// Empty PATH → no python3 anywhere.
+	t.Setenv("PATH", "")
+	_, err := ensureMempalace()
+	if err == nil {
+		t.Fatal("expected error when python3 is unavailable")
+	}
+}

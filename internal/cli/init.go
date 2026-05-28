@@ -176,6 +176,57 @@ func discoverMempalaceMCP() (json.RawMessage, error) {
 	return mempalace, nil
 }
 
+// ensureMempalace makes sure the mempalace gateway python module is
+// importable. Returns the absolute path to python3 (suitable for use in
+// mcp.json's "command" field).
+//
+// Strategy:
+//  1. Resolve python3 via PATH. If not found, return error.
+//  2. Try `python3 -c "import mempalace_gateway"`. If it exits 0, done.
+//  3. Otherwise install. Prefer `uv tool install mempalace` if `uv` is on PATH.
+//     Else `python3 -m pip install --user mempalace`.
+//  4. Re-check the import. If still failing, return an actionable error.
+func ensureMempalace() (string, error) {
+	pythonPath, err := exec.LookPath("python3")
+	if err != nil {
+		return "", fmt.Errorf("python3 not found on PATH — install Python 3.10+ and retry")
+	}
+
+	if err := checkMempalaceImport(pythonPath); err == nil {
+		return pythonPath, nil
+	}
+
+	// Need to install. Prefer uv tool, fall back to pip --user.
+	if uvPath, uerr := exec.LookPath("uv"); uerr == nil {
+		fmt.Println("installing mempalace via uv tool install (one-time setup)...")
+		cmd := exec.Command(uvPath, "tool", "install", "mempalace")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if cerr := cmd.Run(); cerr != nil {
+			return "", fmt.Errorf("uv tool install mempalace failed: %w", cerr)
+		}
+	} else {
+		fmt.Println("installing mempalace via pip --user (one-time setup)...")
+		cmd := exec.Command(pythonPath, "-m", "pip", "install", "--user", "mempalace")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if cerr := cmd.Run(); cerr != nil {
+			return "", fmt.Errorf("pip install --user mempalace failed: %w (install 'uv' (https://docs.astral.sh/uv) or run the pip command manually with elevated permissions)", cerr)
+		}
+	}
+
+	if err := checkMempalaceImport(pythonPath); err != nil {
+		return "", fmt.Errorf("mempalace_gateway still not importable after install: %w", err)
+	}
+	return pythonPath, nil
+}
+
+// checkMempalaceImport returns nil if `python3 -c "import mempalace_gateway"` exits 0.
+func checkMempalaceImport(pythonPath string) error {
+	cmd := exec.Command(pythonPath, "-c", "import mempalace_gateway")
+	return cmd.Run()
+}
+
 // isLocalNonBareRepo returns true when url is a filesystem path AND the
 // directory contains a non-bare git repo. Returns false for any URL with a
 // scheme (http://, https://, ssh://, git@), for any path that doesn't contain
