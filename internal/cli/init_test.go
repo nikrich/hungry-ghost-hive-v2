@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +44,55 @@ func TestInit_ErrorsIfAlreadyInitialized(t *testing.T) {
 	opts := InitOptions{Dir: tmp, WorkspaceSlug: "x", NoClone: true}
 	if err := RunInit(opts); err == nil {
 		t.Fatal("expected error when .hive/ already exists")
+	}
+}
+
+func TestDiscoverMempalaceMCP_FindsBlockInClaudeJSON(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	claudeJSON := `{
+		"mcpServers": {
+			"mempalace": {
+				"command": "/some/venv/python",
+				"args": ["-m", "mempalace_gateway.server"],
+				"env": {"MEMPALACE_ROOT": "/some/path"}
+			},
+			"other": {"command": "other-thing"}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(tmp, ".claude.json"), []byte(claudeJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := discoverMempalaceMCP()
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if !strings.Contains(string(got), "/some/venv/python") {
+		t.Errorf("expected command in result, got: %s", got)
+	}
+	if !strings.Contains(string(got), "/some/path") {
+		t.Errorf("expected MEMPALACE_ROOT in result, got: %s", got)
+	}
+}
+
+func TestDiscoverMempalaceMCP_ReturnsNotExistWhenNoFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	_, err := discoverMempalaceMCP()
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected os.ErrNotExist, got: %v", err)
+	}
+}
+
+func TestDiscoverMempalaceMCP_ReturnsNotExistWhenNoMempalaceBlock(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	claudeJSON := `{"mcpServers": {"other": {"command": "x"}}}`
+	if err := os.WriteFile(filepath.Join(tmp, ".claude.json"), []byte(claudeJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := discoverMempalaceMCP()
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expected os.ErrNotExist, got: %v", err)
 	}
 }

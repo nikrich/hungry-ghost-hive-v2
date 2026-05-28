@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -91,12 +92,38 @@ func RunInit(opts InitOptions) error {
 	if err := os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), settings, 0o644); err != nil {
 		return err
 	}
+	// Write mcp.json — bundled placeholder by default, auto-detected from
+	// ~/.claude.json if a mempalace MCP block exists there.
 	mcp, err := assets.MCPJSON()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(claudeDir, "mcp.json"), mcp, 0o644); err != nil {
+	mcpPath := filepath.Join(claudeDir, "mcp.json")
+	if err := os.WriteFile(mcpPath, mcp, 0o644); err != nil {
 		return err
+	}
+	if discovered, derr := discoverMempalaceMCP(); derr == nil {
+		// Splice the discovered block into the just-written mcp.json.
+		var doc map[string]any
+		if jerr := json.Unmarshal(mcp, &doc); jerr == nil {
+			servers, _ := doc["mcpServers"].(map[string]any)
+			if servers == nil {
+				servers = map[string]any{}
+				doc["mcpServers"] = servers
+			}
+			var disc any
+			if jerr := json.Unmarshal(discovered, &disc); jerr == nil {
+				servers["mempalace"] = disc
+				if out, jerr := json.MarshalIndent(doc, "", "  "); jerr == nil {
+					_ = os.WriteFile(mcpPath, out, 0o644)
+					fmt.Println("mempalace MCP: auto-configured from ~/.claude.json")
+				}
+			}
+		}
+	} else if errors.Is(derr, os.ErrNotExist) {
+		fmt.Fprintln(os.Stderr, "warning: mempalace MCP config is a placeholder. Edit .claude/mcp.json with your install's command before running 'hive run'.")
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: could not read ~/.claude.json for MCP auto-detect: %v\n", derr)
 	}
 
 	// (Phase 1) Skip clone logic when NoClone. Real cloning is out of scope for T7.
@@ -107,6 +134,35 @@ func RunInit(opts InitOptions) error {
 	}
 
 	return nil
+}
+
+// discoverMempalaceMCP reads $HOME/.claude.json and returns the user's existing
+// mempalace MCP server config as a raw JSON message. Returns os.ErrNotExist if
+// the file doesn't exist or doesn't contain an mcpServers.mempalace block.
+func discoverMempalaceMCP() (json.RawMessage, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, os.ErrNotExist
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read ~/.claude.json: %w", err)
+	}
+
+	var top struct {
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &top); err != nil {
+		return nil, fmt.Errorf("parse ~/.claude.json: %w", err)
+	}
+	mempalace, ok := top.MCPServers["mempalace"]
+	if !ok || len(mempalace) == 0 {
+		return nil, os.ErrNotExist
+	}
+	return mempalace, nil
 }
 
 // writeEmbedTree walks an fs.FS and mirrors it under dst.
