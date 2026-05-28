@@ -77,10 +77,8 @@ If live worker count < `max_workers` from config AND there's a pending story:
   ```
 - Spawn the worker (this is the only place you create `claude` subprocesses):
   ```bash
-  cd repos/<team>--junior-<id>
-  nohup claude --print --permission-mode acceptEdits "You are agent <id>. Read .hive/agents/<id>/context.md (path relative to workspace root: $(pwd)/../../.hive/agents/<id>/context.md) and invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &
+  nohup claude --print --permission-mode acceptEdits "You are agent <id>. Your worktree is at repos/<team>--junior-<id>. Read .hive/agents/<id>/context.md, then invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &
   WORKER_PID=$!
-  cd -
   echo $WORKER_PID > .hive/agents/<id>/worker.pid
   ```
 - Record the session path (best-effort, small race acceptable):
@@ -129,7 +127,7 @@ A happy-path tick with one pending requirement and zero live workers does this s
 8. `Bash` `git -C repos/test-team worktree add ../test-team--junior-abc12345 -b agent/test-team--junior-abc12345`
 9. `Bash` `mkdir -p .hive/agents/abc12345 && date +%s > .hive/agents/abc12345/started_at`
 10. `Write` `.hive/agents/abc12345/context.md` (via Bash heredoc, NOT the Write tool — Write is forbidden)
-11. `Bash` `cd repos/test-team--junior-abc12345 && nohup claude --print ... &`
+11. `Bash` `nohup claude --print --permission-mode acceptEdits "You are agent abc12345. Your worktree is at repos/test-team--junior-abc12345. Read .hive/agents/abc12345/context.md, then invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &`
 12. `Bash` `echo $! > .hive/agents/abc12345/worker.pid`
 13. `mempalace_add_drawer` agent-state drawer
 14. `mempalace_update_drawer` story → assigned
