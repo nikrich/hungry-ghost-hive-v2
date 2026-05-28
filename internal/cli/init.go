@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/assets"
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/config"
@@ -57,6 +59,15 @@ func RunInit(opts InitOptions) error {
 			RepoURL:  t.URL,
 			RepoPath: filepath.Join("repos", t.Name),
 		})
+	}
+
+	// Warn on local non-bare team repos (workers will fail at git push).
+	for _, t := range opts.Teams {
+		if isLocalNonBareRepo(t.URL) {
+			fmt.Fprintf(os.Stderr,
+				"warning: team %q repo (%s) is a non-bare local repo. Workers will fail at 'git push' (denyCurrentBranch). Use a bare repo (git init --bare) or a remote URL.\n",
+				t.Name, t.URL)
+		}
 	}
 
 	// Write config.
@@ -163,6 +174,23 @@ func discoverMempalaceMCP() (json.RawMessage, error) {
 		return nil, os.ErrNotExist
 	}
 	return mempalace, nil
+}
+
+// isLocalNonBareRepo returns true when url is a filesystem path AND the
+// directory contains a non-bare git repo. Returns false for any URL with a
+// scheme (http://, https://, ssh://, git@), for any path that doesn't contain
+// a git repo, and for any error talking to git.
+func isLocalNonBareRepo(url string) bool {
+	// Quick filter: looks like a remote URL?
+	if strings.Contains(url, "://") || strings.HasPrefix(url, "git@") {
+		return false
+	}
+	// Looks like a path. Does it have a git repo?
+	out, err := exec.Command("git", "-C", url, "rev-parse", "--is-bare-repository").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "false"
 }
 
 // writeEmbedTree walks an fs.FS and mirrors it under dst.

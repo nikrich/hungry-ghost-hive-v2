@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -94,5 +95,45 @@ func TestDiscoverMempalaceMCP_ReturnsNotExistWhenNoMempalaceBlock(t *testing.T) 
 	_, err := discoverMempalaceMCP()
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("expected os.ErrNotExist, got: %v", err)
+	}
+}
+
+func TestIsLocalNonBareRepo_TrueForNonBareLocalRepo(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := exec.Command("git", "init", "-q", tmp)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if !isLocalNonBareRepo(tmp) {
+		t.Errorf("expected true for non-bare local repo %s", tmp)
+	}
+}
+
+func TestIsLocalNonBareRepo_FalseForBareRepo(t *testing.T) {
+	tmp := t.TempDir()
+	cmd := exec.Command("git", "init", "--bare", "-q", tmp)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git init --bare: %v", err)
+	}
+	if isLocalNonBareRepo(tmp) {
+		t.Errorf("expected false for bare repo %s", tmp)
+	}
+}
+
+func TestIsLocalNonBareRepo_FalseForRemoteURL(t *testing.T) {
+	for _, url := range []string{
+		"https://github.com/foo/bar.git",
+		"git@github.com:foo/bar.git",
+		"ssh://git@github.com/foo/bar.git",
+	} {
+		if isLocalNonBareRepo(url) {
+			t.Errorf("expected false for remote URL %q", url)
+		}
+	}
+}
+
+func TestIsLocalNonBareRepo_FalseForNonExistentPath(t *testing.T) {
+	if isLocalNonBareRepo("/this/path/does/not/exist/at/all") {
+		t.Error("expected false for non-existent path")
 	}
 }
