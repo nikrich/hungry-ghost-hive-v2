@@ -46,6 +46,28 @@ func RunInit(opts InitOptions) error {
 		return err
 	}
 
+	// Resolve absolute workspace path for mcp.json. Without this, MEMPALACE_ROOT
+	// would be relative and break when claude is spawned from a worktree subdir.
+	absWorkspace, err := filepath.Abs(opts.Dir)
+	if err != nil {
+		return fmt.Errorf("resolve workspace abspath: %w", err)
+	}
+
+	// Warn on local non-bare team repos (workers will fail at git push).
+	for _, t := range opts.Teams {
+		if isLocalNonBareRepo(t.URL) {
+			fmt.Fprintf(os.Stderr,
+				"warning: team %q repo (%s) is a non-bare local repo. Workers will fail at 'git push' (denyCurrentBranch). Use a bare repo (git init --bare) or a remote URL.\n",
+				t.Name, t.URL)
+		}
+	}
+
+	// Step 3 from spec lifecycle: ensure mempalace gateway is installed.
+	pythonPath, err := ensureMempalace()
+	if err != nil {
+		return fmt.Errorf("mempalace setup: %w", err)
+	}
+
 	// Build config from flags.
 	cfg := config.Config{
 		WorkspaceSlug:         opts.WorkspaceSlug,
@@ -61,16 +83,7 @@ func RunInit(opts InitOptions) error {
 		})
 	}
 
-	// Warn on local non-bare team repos (workers will fail at git push).
-	for _, t := range opts.Teams {
-		if isLocalNonBareRepo(t.URL) {
-			fmt.Fprintf(os.Stderr,
-				"warning: team %q repo (%s) is a non-bare local repo. Workers will fail at 'git push' (denyCurrentBranch). Use a bare repo (git init --bare) or a remote URL.\n",
-				t.Name, t.URL)
-		}
-	}
-
-	// Write config.
+	// Write .hive/config.yaml + inbox dir.
 	if err := os.MkdirAll(hiveDir, 0o755); err != nil {
 		return err
 	}
@@ -85,7 +98,17 @@ func RunInit(opts InitOptions) error {
 		return err
 	}
 
-	// Write embedded skills.
+	// Step 4: create the workspace-local mempalace data skeleton.
+	if err := createMemoryDir(opts.Dir); err != nil {
+		return fmt.Errorf("create memory dir: %w", err)
+	}
+
+	// Step 5: .hive/.gitignore (so memory/ doesn't get tracked by default).
+	if err := os.WriteFile(filepath.Join(hiveDir, ".gitignore"), []byte("memory/\n"), 0o644); err != nil {
+		return fmt.Errorf("write .hive/.gitignore: %w", err)
+	}
+
+	// Step 6: write embedded skills.
 	skillsFS, err := assets.SkillsFS()
 	if err != nil {
 		return err
@@ -95,7 +118,7 @@ func RunInit(opts InitOptions) error {
 		return fmt.Errorf("write skills: %w", err)
 	}
 
-	// Write settings.local.json and mcp.json.
+	// Step 7: settings.local.json from embedded asset.
 	settings, err := assets.SettingsLocalJSON()
 	if err != nil {
 		return err
@@ -103,41 +126,18 @@ func RunInit(opts InitOptions) error {
 	if err := os.WriteFile(filepath.Join(claudeDir, "settings.local.json"), settings, 0o644); err != nil {
 		return err
 	}
-	// Write mcp.json — bundled placeholder by default, auto-detected from
-	// ~/.claude.json if a mempalace MCP block exists there.
-	mcp, err := assets.MCPJSON()
-	if err != nil {
-		return err
-	}
-	mcpPath := filepath.Join(claudeDir, "mcp.json")
-	if err := os.WriteFile(mcpPath, mcp, 0o644); err != nil {
-		return err
-	}
-	if discovered, derr := discoverMempalaceMCP(); derr == nil {
-		// Splice the discovered block into the just-written mcp.json.
-		var doc map[string]any
-		if jerr := json.Unmarshal(mcp, &doc); jerr == nil {
-			servers, _ := doc["mcpServers"].(map[string]any)
-			if servers == nil {
-				servers = map[string]any{}
-				doc["mcpServers"] = servers
-			}
-			var disc any
-			if jerr := json.Unmarshal(discovered, &disc); jerr == nil {
-				servers["mempalace"] = disc
-				if out, jerr := json.MarshalIndent(doc, "", "  "); jerr == nil {
-					_ = os.WriteFile(mcpPath, out, 0o644)
-					fmt.Println("mempalace MCP: auto-configured from ~/.claude.json")
-				}
-			}
-		}
-	} else if errors.Is(derr, os.ErrNotExist) {
-		fmt.Fprintln(os.Stderr, "warning: mempalace MCP config is a placeholder. Edit .claude/mcp.json with your install's command before running 'hive run'.")
-	} else {
-		fmt.Fprintf(os.Stderr, "warning: could not read ~/.claude.json for MCP auto-detect: %v\n", derr)
+
+	// Step 8: write workspace-local mcp.json. We always write this fresh — the
+	// Phase 1.1 auto-detect from ~/.claude.json is no longer relevant since the
+	// gateway points at workspace-local data.
+	if err := writeWorkspaceLocalMCP(filepath.Join(claudeDir, "mcp.json"), pythonPath, filepath.Join(absWorkspace, ".hive", "memory")); err != nil {
+		return fmt.Errorf("write mcp.json: %w", err)
 	}
 
-	// (Phase 1) Skip clone logic when NoClone. Real cloning is out of scope for T7.
+	// Step 10: friendly hint.
+	fmt.Printf("Workspace initialized. Memory at .hive/memory/. Run `hive add-req \"...\"` then `hive run` to start.\n")
+
+	// (Phase 1) Skip clone logic when NoClone.
 	if !opts.NoClone {
 		for _, t := range opts.Teams {
 			fmt.Printf("(skip) clone %s into %s\n", t.URL, filepath.Join(opts.Dir, "repos", t.Name))
@@ -145,6 +145,27 @@ func RunInit(opts InitOptions) error {
 	}
 
 	return nil
+}
+
+// writeWorkspaceLocalMCP emits a .claude/mcp.json hard-coded to point at the
+// given absolute MEMPALACE_ROOT using the given python3 binary.
+func writeWorkspaceLocalMCP(path, pythonPath, mempalaceRoot string) error {
+	doc := map[string]any{
+		"mcpServers": map[string]any{
+			"mempalace": map[string]any{
+				"command": pythonPath,
+				"args":    []string{"-m", "mempalace_gateway.server"},
+				"env": map[string]any{
+					"MEMPALACE_ROOT": mempalaceRoot,
+				},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // discoverMempalaceMCP reads $HOME/.claude.json and returns the user's existing

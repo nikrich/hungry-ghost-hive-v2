@@ -10,6 +10,18 @@ import (
 )
 
 func TestInit_CreatesExpectedLayout(t *testing.T) {
+	// Stub python3 + uv away so RunInit doesn't actually try to install anything.
+	// The fake python3 succeeds the importability check (exit 0).
+	stubBin, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pythonStub := filepath.Join(stubBin, "python3")
+	if err := os.WriteFile(pythonStub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", stubBin)
+
 	tmp := t.TempDir()
 	opts := InitOptions{
 		Dir:           tmp,
@@ -24,6 +36,14 @@ func TestInit_CreatesExpectedLayout(t *testing.T) {
 	for _, want := range []string{
 		".hive/config.yaml",
 		".hive/inbox",
+		".hive/.gitignore",
+		".hive/memory/wings/hive/rooms/requirements",
+		".hive/memory/wings/hive/rooms/stories",
+		".hive/memory/wings/hive/rooms/agents",
+		".hive/memory/wings/hive/rooms/escalations",
+		".hive/memory/wings/hive/rooms/findings",
+		".hive/memory/index",
+		".hive/memory/.mempalace/config.yaml",
 		".claude/skills/manager.md",
 		".claude/skills/junior.md",
 		".claude/skills/tasks/creating-a-pr.md",
@@ -34,6 +54,32 @@ func TestInit_CreatesExpectedLayout(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("missing %s: %v", want, err)
 		}
+	}
+
+	// Verify mcp.json points at workspace-local memory with our stub python.
+	mcpData, err := os.ReadFile(filepath.Join(tmp, ".claude", "mcp.json"))
+	if err != nil {
+		t.Fatalf("read mcp.json: %v", err)
+	}
+	mcpStr := string(mcpData)
+	if !strings.Contains(mcpStr, pythonStub) {
+		t.Errorf("expected mcp.json command to be %q, got:\n%s", pythonStub, mcpStr)
+	}
+	expectedMemRoot := filepath.Join(tmp, ".hive", "memory")
+	if !strings.Contains(mcpStr, expectedMemRoot) {
+		t.Errorf("expected mcp.json MEMPALACE_ROOT to be %q, got:\n%s", expectedMemRoot, mcpStr)
+	}
+	if !strings.Contains(mcpStr, "mempalace_gateway.server") {
+		t.Errorf("expected mcp.json args to mention mempalace_gateway.server, got:\n%s", mcpStr)
+	}
+
+	// Verify .gitignore contains "memory/".
+	giData, err := os.ReadFile(filepath.Join(tmp, ".hive", ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.Contains(string(giData), "memory/") {
+		t.Errorf("expected .hive/.gitignore to contain 'memory/', got: %q", giData)
 	}
 }
 
