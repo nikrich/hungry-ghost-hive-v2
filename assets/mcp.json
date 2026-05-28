@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "mempalace": {
-      "command": "mempalace-gateway",
-      "args": ["serve", "--stdio"]
+      "command": "<edit-me-or-let-hive-init-auto-detect>",
+      "args": ["-m", "mempalace_gateway.server"],
+      "env": {
+        "MEMPALACE_ROOT": "<path-to-mempalace-data-dir>"
+      }
     }
   }
 }
