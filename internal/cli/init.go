@@ -227,6 +227,33 @@ func checkMempalaceImport(pythonPath string) error {
 	return cmd.Run()
 }
 
+// createMemoryDir creates the workspace-local mempalace data skeleton:
+//   <workspaceRoot>/.hive/memory/wings/hive/rooms/{requirements,stories,agents,escalations,findings}/
+//   <workspaceRoot>/.hive/memory/index/
+//   <workspaceRoot>/.hive/memory/.mempalace/config.yaml (allowlist: [hive])
+func createMemoryDir(workspaceRoot string) error {
+	memRoot := filepath.Join(workspaceRoot, ".hive", "memory")
+	for _, sub := range []string{
+		"wings/hive/rooms/requirements",
+		"wings/hive/rooms/stories",
+		"wings/hive/rooms/agents",
+		"wings/hive/rooms/escalations",
+		"wings/hive/rooms/findings",
+		"index",
+		".mempalace",
+	} {
+		if err := os.MkdirAll(filepath.Join(memRoot, sub), 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", sub, err)
+		}
+	}
+
+	// Mempalace policy config: allowlist the single 'hive' wing.
+	// Schema to be confirmed against upstream mempalace docs during T8 verification;
+	// if it differs, update this string.
+	cfg := "allowlist:\n  - hive\n"
+	return os.WriteFile(filepath.Join(memRoot, ".mempalace", "config.yaml"), []byte(cfg), 0o644)
+}
+
 // isLocalNonBareRepo returns true when url is a filesystem path AND the
 // directory contains a non-bare git repo. Returns false for any URL with a
 // scheme (http://, https://, ssh://, git@), for any path that doesn't contain

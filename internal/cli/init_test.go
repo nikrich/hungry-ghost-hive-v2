@@ -167,3 +167,40 @@ func TestEnsureMempalace_ErrorsWhenNoPython3(t *testing.T) {
 		t.Fatal("expected error when python3 is unavailable")
 	}
 }
+
+func TestCreateMemoryDir_CreatesExpectedTree(t *testing.T) {
+	tmp := t.TempDir()
+	if err := createMemoryDir(tmp); err != nil {
+		t.Fatalf("createMemoryDir: %v", err)
+	}
+
+	memRoot := filepath.Join(tmp, ".hive", "memory")
+	for _, sub := range []string{
+		"wings/hive/rooms/requirements",
+		"wings/hive/rooms/stories",
+		"wings/hive/rooms/agents",
+		"wings/hive/rooms/escalations",
+		"wings/hive/rooms/findings",
+		"index",
+		".mempalace",
+	} {
+		path := filepath.Join(memRoot, sub)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("expected dir %s: %v", sub, err)
+			continue
+		}
+		if !info.IsDir() {
+			t.Errorf("expected %s to be a directory", sub)
+		}
+	}
+
+	cfgPath := filepath.Join(memRoot, ".mempalace", "config.yaml")
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("expected mempalace config.yaml: %v", err)
+	}
+	if !strings.Contains(string(data), "allowlist") || !strings.Contains(string(data), "hive") {
+		t.Errorf("expected allowlist with 'hive', got:\n%s", data)
+	}
+}
