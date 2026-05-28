@@ -1,6 +1,6 @@
 ---
-name: hive-junior
-description: Use when spawned as a junior hive worker. Reads context, implements a story, opens a PR, files outcome, exits.
+name: hive-v2-junior
+description: Use when spawned as a hungry-ghost-hive-v2 junior worker. This is the v2 Go-binary architecture (NOT the legacy capstone-hive). Reads context.md, implements a story, opens a PR via gh, files outcome to mempalace, exits.
 ---
 
 # Hive Junior — Worker Skill

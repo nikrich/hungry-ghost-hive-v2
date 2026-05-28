@@ -29,7 +29,9 @@ func Run(ctx context.Context, opts Options) error {
 		opts.ClaudeBinary = "claude"
 	}
 	if opts.ManagerPrompt == "" {
-		opts.ManagerPrompt = "Invoke the hive manager skill and do one tick."
+		// Disambiguate from the legacy capstone-hive skill which may also
+		// be installed user-globally. v2 skills use the hive-v2-* prefix.
+		opts.ManagerPrompt = "Invoke the hive-v2-manager skill and do exactly one tick of work for this hungry-ghost-hive-v2 workspace. Do NOT invoke capstone-hive or any other hive skill — those are for a different (legacy) architecture."
 	}
 
 	hiveDir := filepath.Join(opts.WorkspaceRoot, ".hive")

@@ -1,6 +1,6 @@
 ---
-name: hive-manager
-description: Use ONLY when invoked as the hive manager process — coordinates story execution by spawning worker subprocesses. Triggered by the watchdog every tick.
+name: hive-v2-manager
+description: Use ONLY when invoked as the hungry-ghost-hive-v2 manager process. This is the v2 Go-binary orchestrator, NOT the legacy capstone-hive (which uses tmux + 'hive req' CLI — v2 uses neither). Coordinates story execution by spawning worker subprocesses. Triggered by the watchdog every tick.
 ---
 
 # Hive Manager — One-Tick Skill
@@ -71,14 +71,14 @@ If live worker count < `max_workers` from config AND there's a pending story:
   <story body>
 
   ## What to do
-  Invoke the hive-junior skill and follow it exactly. Read the junior skill's
+  Invoke the hive-v2-junior skill and follow it exactly. Read the junior skill's
   MUST/MUST NOT block carefully. Commit your work, push the branch, open a PR.
   File your outcome to mempalace. Exit.
   ```
 - Spawn the worker (this is the only place you create `claude` subprocesses):
   ```bash
   cd repos/<team>--junior-<id>
-  nohup claude --print --permission-mode acceptEdits "You are agent <id>. Read .hive/agents/<id>/context.md (path relative to workspace root: $(pwd)/../../.hive/agents/<id>/context.md) and invoke the hive-junior skill. Begin." > /dev/null 2>&1 &
+  nohup claude --print --permission-mode acceptEdits "You are agent <id>. Read .hive/agents/<id>/context.md (path relative to workspace root: $(pwd)/../../.hive/agents/<id>/context.md) and invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &
   WORKER_PID=$!
   cd -
   echo $WORKER_PID > .hive/agents/<id>/worker.pid
