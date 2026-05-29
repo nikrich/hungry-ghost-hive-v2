@@ -73,7 +73,7 @@ func RunInit(opts InitOptions) error {
 		WorkspaceSlug:         opts.WorkspaceSlug,
 		MaxWorkers:            3,
 		TickIntervalSeconds:   60,
-		ManagerTimeoutSeconds: 300,
+		ManagerTimeoutSeconds: 480,
 	}
 	for _, t := range opts.Teams {
 		cfg.Teams = append(cfg.Teams, config.Team{
