@@ -87,17 +87,19 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 	}
 	defer logFile.Close()
 
-	// Note: Phase 1.3 originally added --bare here to skip user-side plugin
-	// hooks and trim per-tool latency. But --bare disables OAuth/keychain auth
-	// (requires ANTHROPIC_API_KEY or apiKeyHelper via --settings), which broke
-	// the manager spawn on machines using `claude login`. Reverted to a plain
-	// spawn until Phase 1.4 decides on a conditional approach (use --bare only
-	// when ANTHROPIC_API_KEY is set).
+	// Phase 1.4: pass the manager skill as claude's system prompt via
+	// --system-prompt-file. This replaces the prior "ask claude to invoke
+	// the hive-v2-manager skill" pattern — manager IS the manager because
+	// the system prompt says so. P1.3 verification showed the previous
+	// pattern resulted in 0 skill invocations and 10 exploratory Bash
+	// calls per 5-min tick; inlining removes the discovery cycle entirely.
+	managerSkillPath := filepath.Join(opts.WorkspaceRoot, ".claude", "skills", "manager.md")
 	cmd := exec.Command(
 		opts.ClaudeBinary,
 		"--print",
 		"--permission-mode", "acceptEdits",
-		opts.ManagerPrompt,
+		"--system-prompt-file", managerSkillPath,
+		"Do one tick now.",
 	)
 	cmd.Dir = opts.WorkspaceRoot
 
