@@ -2,6 +2,7 @@
 package watchdog
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -88,13 +89,22 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 
 	cmd := exec.Command(
 		opts.ClaudeBinary,
+		"--bare",
 		"--print",
 		"--permission-mode", "acceptEdits",
 		opts.ManagerPrompt,
 	)
 	cmd.Dir = opts.WorkspaceRoot
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+
+	// Stream child output to manager.log line-by-line so partial output
+	// survives SIGKILL on timeout. Without this, claude's buffered stdout
+	// is lost when the watchdog kills the manager mid-tick.
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("pipe manager stdout: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
@@ -104,6 +114,16 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 		return err
 	}
 	defer proc.ClearPidFile(managerPid)
+
+	// Drain the pipe in a goroutine; each line lands in manager.log immediately.
+	go func() {
+		scanner := bufio.NewScanner(stdoutPipe)
+		// Allow up to 1 MiB per line (claude can emit large JSON chunks).
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		for scanner.Scan() {
+			_, _ = fmt.Fprintln(logFile, scanner.Text())
+		}
+	}()
 
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
