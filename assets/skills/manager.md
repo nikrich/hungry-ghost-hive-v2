@@ -7,6 +7,8 @@ description: Use ONLY when invoked as the hungry-ghost-hive-v2 manager process. 
 
 ## YOU MUST / YOU MUST NOT
 
+- **YOU MUST NOT** explore the filesystem or look up where skills live. Do NOT `ls`, `find`, or `grep` for `.claude/skills/`, `~/.claude/`, or anywhere else. The skill body below is the only specification you need.
+- **YOU MUST** start immediately at step 1 (Drain the inbox). Do not orient, summarize, or plan first. Each tick has a tight time budget.
 - **YOU MUST** complete exactly one tick of work and exit. Do not loop. Do not wait for spawned workers.
 - **YOU MUST NOT** use Edit, Write, or MultiEdit tools. You orchestrate; workers implement. If you find yourself reaching for Edit, stop — spawn a worker via Bash instead.
 - **YOU MUST** write structured state to mempalace using the `mempalace_add_drawer` and `mempalace_update_drawer` MCP tools. Without drawer writes, the next tick is blind.
@@ -77,7 +79,7 @@ If live worker count < `max_workers` from config AND there's a pending story:
   ```
 - Spawn the worker (this is the only place you create `claude` subprocesses):
   ```bash
-  nohup claude --print --permission-mode acceptEdits "You are agent <id>. Your worktree is at repos/<team>--junior-<id>. Read .hive/agents/<id>/context.md, then invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &
+  nohup claude --bare --print --permission-mode acceptEdits "You are agent <id>. Your worktree is at repos/<team>--junior-<id>. Read .hive/agents/<id>/context.md, then invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &
   WORKER_PID=$!
   echo $WORKER_PID > .hive/agents/<id>/worker.pid
   ```
@@ -137,7 +139,7 @@ A happy-path tick with one pending requirement and zero live workers does this s
 8. `Bash` `git -C repos/test-team worktree add ../test-team--junior-abc12345 -b agent/test-team--junior-abc12345`
 9. `Bash` `mkdir -p .hive/agents/abc12345 && date +%s > .hive/agents/abc12345/started_at`
 10. `Write` `.hive/agents/abc12345/context.md` (via Bash heredoc, NOT the Write tool — Write is forbidden)
-11. `Bash` `nohup claude --print --permission-mode acceptEdits "You are agent abc12345. Your worktree is at repos/test-team--junior-abc12345. Read .hive/agents/abc12345/context.md, then invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &`
+11. `Bash` `nohup claude --bare --print --permission-mode acceptEdits "You are agent abc12345. Your worktree is at repos/test-team--junior-abc12345. Read .hive/agents/abc12345/context.md, then invoke the hive-v2-junior skill. Begin." > /dev/null 2>&1 &`
 12. `Bash` `echo $! > .hive/agents/abc12345/worker.pid`
 13. `mempalace_add_drawer` agent-state drawer
 14. `mempalace_update_drawer` story → assigned
