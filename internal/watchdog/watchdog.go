@@ -103,7 +103,11 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 	if err != nil {
 		return fmt.Errorf("pipe manager stdout: %w", err)
 	}
-	cmd.Stderr = cmd.Stdout
+	// stdout: pipe → scanner → logFile (line-buffered, survives SIGKILL).
+	// stderr: direct fd → logFile (typically line/unbuffered, also survives SIGKILL).
+	// The earlier `cmd.Stderr = cmd.Stdout` form is a no-op because cmd.Stdout is
+	// nil after StdoutPipe() — would have silently discarded stderr.
+	cmd.Stderr = logFile
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
