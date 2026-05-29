@@ -52,3 +52,11 @@ func TestMempalaceRoot_ErrorsWhenUnset(t *testing.T) {
 		t.Fatal("expected error when MEMPALACE_ROOT unset")
 	}
 }
+
+func TestWorkspaceWingDir_ReturnsCorrectPath(t *testing.T) {
+	got := WorkspaceWingDir("/tmp/ws")
+	want := filepath.Join("/tmp/ws", ".hive", "memory", "wings", "hive")
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

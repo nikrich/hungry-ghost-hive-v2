@@ -55,3 +55,9 @@ func ClaudeDir(workspaceRoot string) string {
 func WingDir(mempalaceRoot, wingSlug string) string {
 	return filepath.Join(mempalaceRoot, "wings", "hive-"+wingSlug)
 }
+
+// WorkspaceWingDir returns <workspaceRoot>/.hive/memory/wings/hive.
+// Phase 1.2: each workspace has a single fixed wing named "hive".
+func WorkspaceWingDir(workspaceRoot string) string {
+	return filepath.Join(workspaceRoot, ".hive", "memory", "wings", "hive")
+}
