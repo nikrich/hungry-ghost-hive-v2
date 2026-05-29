@@ -67,8 +67,8 @@ teams: []
 	if cfg.TickIntervalSeconds != 60 {
 		t.Errorf("TickIntervalSeconds default: got %d, want 60", cfg.TickIntervalSeconds)
 	}
-	if cfg.ManagerTimeoutSeconds != 300 {
-		t.Errorf("ManagerTimeoutSeconds default: got %d, want 300", cfg.ManagerTimeoutSeconds)
+	if cfg.ManagerTimeoutSeconds != 480 {
+		t.Errorf("ManagerTimeoutSeconds default: got %d, want 480", cfg.ManagerTimeoutSeconds)
 	}
 }
 

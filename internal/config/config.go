@@ -60,6 +60,6 @@ func (c *Config) applyDefaults() {
 		c.TickIntervalSeconds = 60
 	}
 	if c.ManagerTimeoutSeconds == 0 {
-		c.ManagerTimeoutSeconds = 300
+		c.ManagerTimeoutSeconds = 480
 	}
 }
