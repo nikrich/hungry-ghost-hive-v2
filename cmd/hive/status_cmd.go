@@ -3,10 +3,8 @@ package main
 import (
 	"errors"
 	"os"
-	"path/filepath"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/cli"
-	"github.com/nikrich/hungry-ghost-hive-v2/internal/config"
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/paths"
 	"github.com/spf13/cobra"
 )
@@ -24,16 +22,9 @@ func init() {
 			if err != nil {
 				return errors.New("not inside a hive workspace")
 			}
-			cfg, err := config.Load(filepath.Join(paths.HiveDir(ws), "config.yaml"))
-			if err != nil {
-				return err
-			}
-			mempalaceRoot, err := paths.MempalaceRoot()
-			if err != nil {
-				return err
-			}
-			wingRoot := paths.WingDir(mempalaceRoot, cfg.WorkspaceSlug)
-			return cli.RenderStatus(os.Stdout, wingRoot)
+			// Phase 1.2: workspace-local memory at <workspace>/.hive/memory/wings/hive.
+			// No env-var lookup, no slug lookup — wing is deterministic.
+			return cli.RenderStatus(os.Stdout, paths.WorkspaceWingDir(ws))
 		},
 	}
 	rootCmd.AddCommand(cmd)
