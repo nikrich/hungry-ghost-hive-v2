@@ -76,3 +76,50 @@ func TestFilterByStatus(t *testing.T) {
 		t.Errorf("got %d, want 2", len(got))
 	}
 }
+
+func TestList_ParsesPhase2AFields(t *testing.T) {
+	tmp := t.TempDir()
+	body := `---
+type: story
+status: pending
+title: Implement /healthz endpoint
+points: 3
+team: api
+depends_on:
+  - Scaffold module
+  - Define healthz contract
+acceptance_criteria:
+  - "GET /healthz returns 200"
+  - "Response body is JSON {\"status\":\"ok\"}"
+parent_requirement: Add /healthz endpoint
+current_requirement: ""
+decomposed_into: []
+---
+
+Implement the actual handler.
+`
+	writeDrawer(t, filepath.Join(tmp, "rooms", "stories", "STORY-impl.md"), body)
+
+	got, err := List(tmp, "stories")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d drawers, want 1", len(got))
+	}
+	d := got[0]
+
+	if len(d.DependsOn) != 2 || d.DependsOn[0] != "Scaffold module" || d.DependsOn[1] != "Define healthz contract" {
+		t.Errorf("DependsOn: got %v", d.DependsOn)
+	}
+	if len(d.AcceptanceCriteria) != 2 {
+		t.Errorf("AcceptanceCriteria length: got %d", len(d.AcceptanceCriteria))
+	}
+	if d.AcceptanceCriteria[0] != "GET /healthz returns 200" {
+		t.Errorf("AcceptanceCriteria[0]: got %q", d.AcceptanceCriteria[0])
+	}
+	if d.ParentRequirement != "Add /healthz endpoint" {
+		t.Errorf("ParentRequirement: got %q", d.ParentRequirement)
+	}
+	// DecomposedInto: empty list parses to non-nil zero-length slice OR nil — both acceptable.
+}

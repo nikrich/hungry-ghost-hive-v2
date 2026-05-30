@@ -28,6 +28,13 @@ type Drawer struct {
 	CreatedAt   string `yaml:"created_at"`
 	UpdatedAt   string `yaml:"updated_at"`
 
+	// Phase 2.A — decomposition / dependency / criteria fields
+	DependsOn          []string `yaml:"depends_on"`
+	AcceptanceCriteria []string `yaml:"acceptance_criteria"`
+	ParentRequirement  string   `yaml:"parent_requirement"`
+	DecomposedInto     []string `yaml:"decomposed_into"`
+	CurrentRequirement string   `yaml:"current_requirement"`
+
 	Path string `yaml:"-"` // filesystem path, set by List
 	Body string `yaml:"-"` // markdown body after the frontmatter
 }
