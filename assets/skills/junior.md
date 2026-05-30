@@ -46,11 +46,24 @@ Read the team repo's:
 
 Make the minimum change required by the story's acceptance criteria. If the project has tests, update them and run them.
 
-### 4. Commit + push + open PR
+### 4. Self-check against acceptance criteria
+
+For each criterion in your story's `acceptance_criteria` list:
+
+- **Testable assertion** (e.g., `go test ./... passes`): run it and confirm.
+- **Observable post-condition** (e.g., `README.md begins with '// HELLO'`): `cat`/`grep` and verify.
+- If you CANNOT verify a criterion, do NOT commit a partial fix:
+  - File a `finding` drawer via `tasks/filing-a-finding.md` (`kind: blocker`) describing what's blocking
+  - Update your agent-state: `status=exited`, `exit_reason=escalated`
+  - Exit
+
+Only proceed to commit + push + PR if ALL criteria pass.
+
+### 5. Commit + push + open PR
 
 Use the `tasks/creating-a-pr.md` skill. It covers commit message conventions, branch push, and `gh pr create`. Capture the PR URL from the `gh pr create` output.
 
-### 5. File your outcome
+### 6. File your outcome
 
 - Find your `agent-state` drawer:
   - `mempalace_list_drawers` wing=`hive-<workspace-slug>` (from `.hive/config.yaml`) room=`agents`
@@ -61,16 +74,17 @@ Use the `tasks/creating-a-pr.md` skill. It covers commit message conventions, br
   - Locate the one assigned to you (matches `current_story` from your agent-state)
 - Update via `mempalace_update_drawer`: `status=review`, `pr_url=<the URL from gh pr create>`.
 
-### 6. Optional: file a finding
+### 7. Optional: file a finding
 
 If you discovered something durable (a bug pattern, a non-obvious gotcha, a useful trick), use `tasks/filing-a-finding.md` to file it. Otherwise skip.
 
-### 7. Exit
+### 8. Exit
 
 Just stop. The process ends; the manager reaps your PID on the next tick.
 
 ## After completion checklist
 
+- Did every acceptance criterion verify before I committed?
 - Did the PR get created (you have a URL)?
 - Did you update your `agent-state` to `exited`?
 - Did you update the story to `review` with `pr_url` set?
