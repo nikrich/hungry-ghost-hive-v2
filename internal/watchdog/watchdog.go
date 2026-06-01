@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nikrich/hungry-ghost-hive-v2/assets"
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/proc"
 )
 
@@ -53,6 +54,15 @@ func Run(ctx context.Context, opts Options) error {
 		_ = os.WriteFile(filepath.Join(hiveDir, "hive_binary"), []byte(exe+"\n"), 0o644)
 	}
 
+	// Phase 2.E: re-sync embedded skills into .claude/skills/ on every run startup
+	// so an operator who rebuilds the binary doesn't have to re-init the workspace
+	// to pick up new/changed skills. Idempotent — overwrites with current embed.
+	if err := assets.SyncSkillsToWorkspace(opts.WorkspaceRoot); err != nil {
+		appendLog(watchdogLog, "skill sync error=%v (continuing)", err)
+	} else {
+		appendLog(watchdogLog, "skills synced from embed")
+	}
+
 	appendLog(watchdogLog, "watchdog start pid=%d tick=%s", os.Getpid(), opts.TickInterval)
 	defer appendLog(watchdogLog, "watchdog stop")
 
@@ -67,6 +77,11 @@ func Run(ctx context.Context, opts Options) error {
 			return nil
 		default:
 		}
+
+		// Phase 2.E: pre-tick maintenance — rotate growing logs, free hung agents.
+		rotateIfTooLarge(managerLog)
+		rotateIfTooLarge(watchdogLog)
+		reapHungAgents(opts.WorkspaceRoot, watchdogLog)
 
 		tickStart := time.Now()
 		err := runOneTick(opts, managerPid, managerLog)
@@ -169,4 +184,68 @@ func appendLog(path, format string, args ...any) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, "%s "+format+"\n", append([]any{time.Now().Format(time.RFC3339)}, args...)...)
+}
+
+// Phase 2.E: cap log files at logMaxBytes. When exceeded, rename to <path>.1
+// (overwriting any previous rotation) and start fresh. Called pre-tick from the
+// supervisor loop so growth is bounded across multi-day runs.
+const logMaxBytes = 50 * 1024 * 1024 // 50 MB
+
+func rotateIfTooLarge(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < logMaxBytes {
+		return
+	}
+	_ = os.Rename(path, path+".1")
+}
+
+// Phase 2.E: hung-worker detection. The manager skill writes the spawn epoch
+// into .hive/agents/<id>/started_at. Any live agent older than hungAgentMaxAge
+// gets SIGKILL'd here — the manager's reap step picks up the corpse next tick
+// and re-pends (or escalates) the story per normal abandonment recovery.
+//
+// 20 min is generous for slow worker runs (one tick we saw was 5m, and workers
+// can take 5-10 min for non-trivial stories) but tight enough that a truly
+// stuck agent is freed within one operator-coffee-break window.
+const hungAgentMaxAge = 20 * time.Minute
+
+func reapHungAgents(workspaceRoot, watchdogLog string) {
+	agentsDir := filepath.Join(workspaceRoot, ".hive", "agents")
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		return // no agents dir = nothing to reap
+	}
+	now := time.Now()
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		id := e.Name()
+		startedAtBytes, err := os.ReadFile(filepath.Join(agentsDir, id, "started_at"))
+		if err != nil {
+			continue // no started_at yet — agent is mid-spawn, skip
+		}
+		var startedAt int64
+		if _, err := fmt.Sscanf(string(startedAtBytes), "%d", &startedAt); err != nil {
+			continue
+		}
+		age := now.Sub(time.Unix(startedAt, 0))
+		if age <= hungAgentMaxAge {
+			continue
+		}
+		pidBytes, err := os.ReadFile(filepath.Join(agentsDir, id, "worker.pid"))
+		if err != nil {
+			continue
+		}
+		var pid int
+		if _, err := fmt.Sscanf(string(pidBytes), "%d", &pid); err != nil {
+			continue
+		}
+		// kill -0 to check liveness; if alive past the cap, SIGKILL the process group.
+		if err := syscall.Kill(pid, 0); err != nil {
+			continue // not alive — manager will reap normally
+		}
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		appendLog(watchdogLog, "hung-agent reap id=%s pid=%d age=%s", id, pid, age.Round(time.Second))
+	}
 }

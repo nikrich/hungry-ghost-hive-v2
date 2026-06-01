@@ -36,15 +36,37 @@ Your context contains:
 - The story's parent requirement
 - The story's acceptance criteria (informational — minimal QA only runs tests; future iterations may judge criteria)
 
-### 1. Sanity-check the worktree
+### 1. Acquire a worktree on the agent branch
+
+The worker's worktree may or may not still exist — the manager's reap step removes
+it when the worker process dies. Either way, you need a working tree checked out on
+the agent branch so you can run tests.
 
 ```bash
-cd repos/<TEAM>--<ROLE>-<WORKER_ID>
-git status --porcelain      # expect empty
-git rev-parse --abbrev-ref HEAD     # expect agent/<TEAM>--<ROLE>-<WORKER_ID>
+WORKER_WT="repos/<TEAM>--<WORKER_ROLE>-<WORKER_ID>"
+QA_WT="repos/<TEAM>--qa-<YOUR_ID>"
+AGENT_BRANCH="agent/<TEAM>--<WORKER_ROLE>-<WORKER_ID>"
+
+if [ -d "$WORKER_WT" ]; then
+  # Worker worktree still present — use it directly.
+  TEST_WT="$WORKER_WT"
+else
+  # Worker worktree was reaped — create a fresh QA worktree from origin/<agent_branch>.
+  git -C "repos/<TEAM>" fetch origin "$AGENT_BRANCH" --quiet
+  git -C "repos/<TEAM>" worktree add "../$(basename $QA_WT)" -b "qa/$(basename $QA_WT)" "origin/$AGENT_BRANCH"
+  TEST_WT="$QA_WT"
+fi
+
+cd "$TEST_WT"
+git status --porcelain                              # expect empty
+git rev-parse --abbrev-ref HEAD                     # branch name varies (agent/* if reused, qa/* if fresh)
+git rev-list --count "origin/$AGENT_BRANCH..HEAD"   # expect 0 — HEAD must contain all agent-branch commits
 ```
 
-If `git status` shows uncommitted changes OR the branch is wrong, the worker didn't finish cleanly. File a `finding` drawer (kind=qa-environment, body=what you saw), update the story to `status=blocked`, update your agent-state to `exited`/`failed`, exit.
+If the working tree has uncommitted changes (only possible with the worker's WT) OR
+the HEAD isn't reachable from `origin/<agent_branch>`, file a `finding` drawer
+(kind=qa-environment, body=what you saw), update the story to `status=blocked`,
+update your agent-state to `exited`/`failed`, exit.
 
 ### 2. Run the test command
 
