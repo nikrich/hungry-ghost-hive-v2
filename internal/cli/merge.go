@@ -114,21 +114,28 @@ func findStoryByTitle(wingRoot, title string) (drawers.Drawer, error) {
 }
 
 // lookupAgentRole finds the agent-state drawer for the given agent id and returns its role.
+//
+// The tech-lead / manager skills don't surface a `title: agent-<id>` field
+// in the YAML frontmatter — the id is in the markdown body instead (either
+// a bare `agent-<id>` line for workers or a `# agent-<id>` heading for
+// tech-leads). We match against Drawer.Title for forward-compat and fall
+// back to the body for current-shape drawers.
 func lookupAgentRole(wingRoot, agentID string) (string, error) {
 	all, err := drawers.List(wingRoot, "agents")
 	if err != nil {
 		return "", fmt.Errorf("list agents: %w", err)
 	}
-	want := "agent-" + agentID
+	needle := "agent-" + agentID
 	for _, d := range all {
-		if d.Title == want {
-			if d.Role == "" {
-				return "", fmt.Errorf("agent-state drawer %q has no role", want)
-			}
-			return d.Role, nil
+		if d.Title != needle && !strings.Contains(d.Body, needle) {
+			continue
 		}
+		if d.Role == "" {
+			return "", fmt.Errorf("agent-state drawer for %q has no role", agentID)
+		}
+		return d.Role, nil
 	}
-	return "", fmt.Errorf("no agent-state drawer found for agent id %q (expected title %q)", agentID, want)
+	return "", fmt.Errorf("no agent-state drawer found for agent id %q", agentID)
 }
 
 // runGitMerge fetches, checks out the feature branch, merges the agent branch with --no-ff,

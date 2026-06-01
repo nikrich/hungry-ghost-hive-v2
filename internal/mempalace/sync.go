@@ -154,10 +154,16 @@ func clearMarkdownFiles(dir string) error {
 	return nil
 }
 
+// mempalace.mcp_server does os.dup2(2, 1) at import time so its MCP stdio
+// loop can swap stdout back later without poisoning the handshake. That
+// dup2 is OS-level: fd 1 itself now points where stderr did, so neither
+// sys.stdout nor os.write(1, ...) reaches the real stdout. The original
+// stdout fd is preserved at mempalace.mcp_server._REAL_STDOUT_FD — we
+// write through that to get JSON back to the Go parent.
 const dumpScript = `
-import json, os, sys
+import json, os
 os.environ["MEMPALACE_PALACE_PATH"] = os.environ["WORKSPACE_CHROMA"]
-from mempalace.mcp_server import TOOLS
+from mempalace.mcp_server import TOOLS, _REAL_STDOUT_FD
 listed = TOOLS["mempalace_list_drawers"]["handler"](wing="hive", limit=1000)
 out = []
 for d in listed.get("drawers", []):
@@ -170,17 +176,17 @@ for d in listed.get("drawers", []):
         "room": full.get("room", ""),
         "content": full.get("content", ""),
     })
-json.dump(out, sys.stdout)
+os.write(_REAL_STDOUT_FD, json.dumps(out).encode("utf-8"))
 `
 
 const updateScript = `
 import json, os, sys
 os.environ["MEMPALACE_PALACE_PATH"] = os.environ["WORKSPACE_CHROMA"]
-from mempalace.mcp_server import TOOLS
+from mempalace.mcp_server import TOOLS, _REAL_STDOUT_FD
 drawer_id = sys.argv[1]
 content = sys.stdin.read()
 result = TOOLS["mempalace_update_drawer"]["handler"](drawer_id=drawer_id, content=content)
-json.dump(result, sys.stdout)
+os.write(_REAL_STDOUT_FD, json.dumps(result).encode("utf-8"))
 `
 
 func runDump(workspaceRoot string) ([]drawerRecord, error) {
