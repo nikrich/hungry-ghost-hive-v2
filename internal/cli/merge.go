@@ -1,10 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/drawers"
@@ -109,9 +110,70 @@ func lookupAgentRole(wingRoot, agentID string) (string, error) {
 	return "", fmt.Errorf("no agent-state drawer found for agent id %q (expected title %q)", agentID, want)
 }
 
-// runGitMerge is implemented in Task 4. Stubbed here so the file compiles.
+// runGitMerge fetches, checks out the feature branch, merges the agent branch with --no-ff,
+// pushes, and restores the previous HEAD. On any error the previous HEAD is best-effort restored.
 func runGitMerge(workspaceRoot, team, featureBranch, agentBranch string) error {
-	return errors.New("runGitMerge not yet implemented")
+	repoDir := filepath.Join(workspaceRoot, "repos", team)
+	if _, err := os.Stat(repoDir); err != nil {
+		return fmt.Errorf("team repo %s not found: %w", repoDir, err)
+	}
+
+	origHead, err := gitOutput(repoDir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return fmt.Errorf("rev-parse HEAD: %w", err)
+	}
+	origHead = strings.TrimSpace(origHead)
+	if origHead == "" {
+		origHead = "main"
+	}
+
+	restoreHEAD := func() {
+		_ = gitRun(repoDir, "checkout", origHead)
+	}
+
+	if err := gitRun(repoDir, "fetch", "origin", "--quiet"); err != nil {
+		return fmt.Errorf("git fetch: %w", err)
+	}
+	if err := gitRun(repoDir, "checkout", featureBranch); err != nil {
+		return fmt.Errorf("git checkout %s: %w", featureBranch, err)
+	}
+	if err := gitRun(repoDir, "pull", "origin", featureBranch, "--quiet"); err != nil {
+		restoreHEAD()
+		return fmt.Errorf("git pull %s: %w", featureBranch, err)
+	}
+	if err := gitRun(repoDir, "merge", "--no-ff", "--no-edit", "origin/"+agentBranch); err != nil {
+		_ = gitRun(repoDir, "merge", "--abort") // best effort
+		restoreHEAD()
+		return fmt.Errorf("git merge origin/%s: %w", agentBranch, err)
+	}
+	if err := gitRun(repoDir, "push", "origin", featureBranch); err != nil {
+		restoreHEAD()
+		return fmt.Errorf("git push %s: %w", featureBranch, err)
+	}
+	restoreHEAD()
+	return nil
+}
+
+// gitRun runs git in dir, discarding output.
+func gitRun(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// gitOutput runs git in dir and returns stdout (trimmed).
+func gitOutput(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // flipStoryMerged rewrites the drawer file to set status=merged and merged_at=<now>.
