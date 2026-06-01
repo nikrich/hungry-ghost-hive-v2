@@ -192,11 +192,42 @@ func flipStoryMerged(drawerPath string) error {
 	return os.Rename(tmp, filepath.Clean(drawerPath))
 }
 
-// rewriteStatusAndMergedAt does a minimal frontmatter rewrite without a full YAML round-trip
-// so we preserve any comments and field order present in the source file.
+// rewriteStatusAndMergedAt updates the status: line inside the leading YAML frontmatter
+// and adds (or replaces) a merged_at: line. We do this textually instead of round-tripping
+// through gopkg.in/yaml.v3 because that library re-orders keys and strips comments — both of
+// which would noisily churn the drawer files.
 func rewriteStatusAndMergedAt(src, newStatus, mergedAt string) string {
-	// Implemented in Task 5. Skeleton returns src so the refusal test compiles.
-	_ = newStatus
-	_ = mergedAt
-	return src
+	const marker = "---\n"
+	if !strings.HasPrefix(src, marker) {
+		return src
+	}
+	rest := src[len(marker):]
+	end := strings.Index(rest, "\n"+marker)
+	if end < 0 {
+		return src
+	}
+	frontmatter := rest[:end+1] // include trailing newline
+	body := rest[end+len(marker)+1:]
+
+	lines := strings.Split(strings.TrimRight(frontmatter, "\n"), "\n")
+	wroteStatus := false
+	wroteMergedAt := false
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "status:"):
+			lines[i] = "status: " + newStatus
+			wroteStatus = true
+		case strings.HasPrefix(line, "merged_at:"):
+			lines[i] = "merged_at: " + mergedAt
+			wroteMergedAt = true
+		}
+	}
+	if !wroteStatus {
+		lines = append(lines, "status: "+newStatus)
+	}
+	if !wroteMergedAt {
+		lines = append(lines, "merged_at: "+mergedAt)
+	}
+	newFrontmatter := strings.Join(lines, "\n") + "\n"
+	return marker + newFrontmatter + marker + body
 }
