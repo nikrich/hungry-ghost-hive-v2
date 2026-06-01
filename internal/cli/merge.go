@@ -185,6 +185,9 @@ func flipStoryMerged(drawerPath string) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	updated := rewriteStatusAndMergedAt(string(data), "merged", now)
+	if updated == string(data) {
+		return fmt.Errorf("drawer %s has malformed frontmatter (no `---` markers found); cannot flip status", drawerPath)
+	}
 	tmp := drawerPath + ".tmp"
 	if err := os.WriteFile(tmp, []byte(updated), 0o644); err != nil {
 		return err
@@ -209,7 +212,7 @@ func rewriteStatusAndMergedAt(src, newStatus, mergedAt string) string {
 	frontmatter := rest[:end+1] // include trailing newline
 	body := rest[end+len(marker)+1:]
 
-	lines := strings.Split(strings.TrimRight(frontmatter, "\n"), "\n")
+	lines := strings.Split(strings.TrimSuffix(frontmatter, "\n"), "\n")
 	wroteStatus := false
 	wroteMergedAt := false
 	for i, line := range lines {
