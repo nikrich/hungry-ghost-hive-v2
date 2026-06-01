@@ -94,10 +94,17 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 	// pattern resulted in 0 skill invocations and 10 exploratory Bash
 	// calls per 5-min tick; inlining removes the discovery cycle entirely.
 	managerSkillPath := filepath.Join(opts.WorkspaceRoot, ".claude", "skills", "manager.md")
+	mcpConfigPath := filepath.Join(opts.WorkspaceRoot, ".claude", "mcp.json")
+	// Phase 1.5: pin MCP config to the workspace-local mcp.json so the
+	// mempalace gateway picks up MEMPALACE_ROOT=<workspace>/.hive/memory.
+	// --strict-mcp-config ignores the user-level ~/.claude.json which would
+	// otherwise point the gateway at a global memory store.
 	cmd := exec.Command(
 		opts.ClaudeBinary,
 		"--print",
 		"--permission-mode", "acceptEdits",
+		"--mcp-config", mcpConfigPath,
+		"--strict-mcp-config",
 		"--system-prompt-file", managerSkillPath,
 		"Do one tick now.",
 	)

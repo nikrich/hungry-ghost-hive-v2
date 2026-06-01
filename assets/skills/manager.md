@@ -128,6 +128,7 @@ If at least one such requirement exists:
 - Spawn (tech-leads have NO worktree — they spawn from workspace root):
   ```bash
   nohup claude --print --permission-mode acceptEdits \
+    --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
     --system-prompt-file "$(pwd)/.claude/skills/tech-lead.md" \
     "You are agent <id>. Read .hive/agents/<id>/context.md and decompose the requirement." \
     > /dev/null 2>&1 &
@@ -223,10 +224,11 @@ criterion BEFORE committing. Commit, push, open a PR, file your outcome to
 mempalace, exit.
 ```
 
-**Spawn (unchanged from Phase 2.A):**
+**Spawn (Phase 1.5: pinned MCP config so the mempalace gateway points at workspace-local memory):**
 
 ```bash
 nohup claude --print --permission-mode acceptEdits \
+  --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
   --system-prompt-file "$(pwd)/.claude/skills/<role>.md" \
   "You are agent <id>. Worktree: repos/<team>--<role>-<id>. Read .hive/agents/<id>/context.md and begin." \
   > /dev/null 2>&1 &
