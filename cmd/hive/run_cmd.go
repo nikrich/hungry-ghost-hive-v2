@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/config"
@@ -39,9 +40,7 @@ func init() {
 				return err
 			}
 
-			fmt.Printf("hive run started (workspace=%s, tick=%ds, max_workers=%d)\n",
-				cfg.WorkspaceSlug, cfg.TickIntervalSeconds, cfg.MaxWorkers)
-			fmt.Println("Press Ctrl-C to stop.")
+			printBanner(cfg, ws)
 
 			return watchdog.Run(context.Background(), watchdog.Options{
 				WorkspaceRoot:  ws,
@@ -51,4 +50,63 @@ func init() {
 		},
 	}
 	rootCmd.AddCommand(cmd)
+}
+
+// printBanner prints the hive startup banner — honeycomb-framed ASCII "HIVE"
+// + a config summary block. Uses ANSI yellow when stdout is a TTY; falls
+// back to plain text under pipes/redirects.
+func printBanner(cfg *config.Config, workspaceRoot string) {
+	const (
+		yellow = "\033[38;5;214m"
+		dim    = "\033[2m"
+		bold   = "\033[1m"
+		reset  = "\033[0m"
+	)
+	c := func(code string) string { return code }
+	if fi, err := os.Stdout.Stat(); err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
+		// Not a TTY — strip ANSI.
+		c = func(string) string { return "" }
+	}
+
+	const hexRow = "⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡ ⬡"
+	const art = `      ██╗  ██╗██╗██╗   ██╗███████╗
+      ██║  ██║██║██║   ██║██╔════╝
+      ███████║██║██║   ██║█████╗
+      ██╔══██║██║╚██╗ ██╔╝██╔══╝
+      ██║  ██║██║ ╚████╔╝ ███████╗
+      ╚═╝  ╚═╝╚═╝  ╚═══╝  ╚══════╝`
+
+	fmt.Println()
+	fmt.Printf("   %s%s%s\n", c(yellow), hexRow, c(reset))
+	fmt.Println()
+	fmt.Printf("%s%s%s\n", c(yellow), art, c(reset))
+	fmt.Println()
+	fmt.Printf("      %shungry-ghost-hive · v2 · parallel AI dev teams%s\n", c(dim), c(reset))
+	fmt.Println()
+	fmt.Printf("   %s%s%s\n", c(yellow), hexRow, c(reset))
+	fmt.Println()
+
+	teamNames := make([]string, len(cfg.Teams))
+	for i, t := range cfg.Teams {
+		teamNames[i] = t.Name
+	}
+	teamLine := strings.Join(teamNames, ", ")
+	if teamLine == "" {
+		teamLine = "(none configured)"
+	}
+
+	rows := [][2]string{
+		{"workspace", cfg.WorkspaceSlug},
+		{"tick", fmt.Sprintf("%ds", cfg.TickIntervalSeconds)},
+		{"max workers", fmt.Sprintf("%d", cfg.MaxWorkers)},
+		{"max qa", fmt.Sprintf("%d", cfg.MaxQA)},
+		{"teams", teamLine},
+		{"workspace root", workspaceRoot},
+	}
+	for _, r := range rows {
+		fmt.Printf("   %s%-15s%s %s\n", c(bold), r[0], c(reset), r[1])
+	}
+	fmt.Println()
+	fmt.Printf("   %sPress Ctrl-C to stop · drop requirements via `hive add-req \"…\"`%s\n", c(dim), c(reset))
+	fmt.Println()
 }
