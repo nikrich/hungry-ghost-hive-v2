@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/drawers"
+	"github.com/nikrich/hungry-ghost-hive-v2/internal/mempalace"
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/paths"
 )
 
@@ -26,6 +27,13 @@ type MergeOptions struct {
 // primitive. The story must be in status=review and must have a feature_branch
 // set. Agent branch is reconstructed from the story's assigned_to + role.
 func RunMerge(opts MergeOptions) error {
+	// Phase 1.5 bridge: snapshot ChromaDB drawers to disk so findStoryByTitle
+	// and lookupAgentRole see the live state written by manager/worker MCP
+	// calls. No-op when the workspace ChromaDB is absent (unit tests).
+	if err := mempalace.DumpToFilesystem(opts.WorkspaceRoot); err != nil {
+		return fmt.Errorf("sync drawers from chroma: %w", err)
+	}
+
 	wingRoot := paths.WorkspaceWingDir(opts.WorkspaceRoot)
 
 	story, err := findStoryByTitle(wingRoot, opts.StoryTitle)
@@ -70,6 +78,19 @@ func RunMerge(opts MergeOptions) error {
 
 	if err := flipStoryMerged(story.Path); err != nil {
 		return fmt.Errorf("merge succeeded but flipping drawer failed: %w (manually set status=merged in %s)", err, story.Path)
+	}
+
+	// Phase 1.5 bridge: push the flipped drawer back to ChromaDB so the
+	// next manager tick observes status=merged via mempalace_list_drawers.
+	// Skipped silently for hand-written drawer files in tests (DrawerID="").
+	if drawerID := mempalace.DrawerIDFromPath(story.Path); drawerID != "" {
+		flipped, readErr := os.ReadFile(story.Path)
+		if readErr != nil {
+			return fmt.Errorf("merge + drawer flip succeeded but re-reading drawer for chroma push failed: %w", readErr)
+		}
+		if err := mempalace.PushDrawer(opts.WorkspaceRoot, drawerID, string(flipped)); err != nil {
+			return fmt.Errorf("merge + drawer flip succeeded but chroma push failed: %w (manager tick will still see status=review until you re-run hive merge)", err)
+		}
 	}
 
 	fmt.Printf("Merged origin/%s into origin/%s\n", agentBranch, story.FeatureBranch)
