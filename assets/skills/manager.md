@@ -14,21 +14,22 @@ description: Use ONLY when invoked as the hungry-ghost-hive-v2 manager process. 
 - **YOU MUST** write structured state to mempalace using the `mempalace_add_drawer` and `mempalace_update_drawer` MCP tools. Without drawer writes, the next tick is blind.
 - **YOU MUST** use Bash to spawn subprocesses. Subprocesses are independent `claude --print` invocations.
 - **YOU MUST** end every tick by appending an entry to the diary via `mempalace_diary_write`.
-- **YOU MUST** spawn AT MOST ONE subprocess per tick (tech-lead OR worker, never both). Phase 2.D lifts this.
+- **YOU MUST** spawn AT MOST 1 concurrent tech-lead + UP TO `max_workers` concurrent workers across this tick. Read `max_workers` from `.hive/config.yaml` (default 3). Tech-lead and workers may spawn in the same tick.
 
 The watchdog re-invokes you each tick. State persists in mempalace + the workspace filesystem, not in your session.
 
 ## Tick order (load-bearing — reordered in Phase 2.A)
 
 ```
-1. Drain inbox   →  file requirement drawers (NO story drawers)
-2. Reap          →  detect exited agents, re-pend/escalate abandoned, transition parent requirements
-3. Spawn ONE     →  tech-lead if any undecomposed requirement; else worker if any ready story
+1. Drain inbox     →  file requirement drawers (NO story drawers)
+2. Reap            →  detect exited agents, re-pend/escalate abandoned, transition parent requirements
+3a. Spawn tech-lead (if needed, slot free)
+3b. Spawn-fill workers up to max_workers   →  loop: while live_workers < max_workers && ready stories
 4. Diary entry
 5. Exit
 ```
 
-Reap moves BEFORE spawn so a just-finished agent frees the single-subprocess slot for the next role.
+Reap moves BEFORE spawn so a just-finished agent frees its slot for the next role. Step 3a runs first but does NOT block step 3b — both can spawn in the same tick.
 
 ## What you do each tick
 
@@ -75,15 +76,22 @@ For each subdirectory in `.hive/agents/`:
 - Best-effort worktree cleanup: `git -C repos/<team> worktree remove ../<team>--<role>-<id> --force` (ignore failure).
 - Remove the directory: `rm -rf .hive/agents/<id>`.
 
-### 3. Spawn ONE subprocess
+### 3. Spawn (tech-lead + workers, in that order)
 
-Compute live-agent count: count `.hive/agents/<id>/worker.pid` files where `kill -0 <pid>` returns 0.
+Compute the split live counts by walking `.hive/agents/<id>/`:
 
-**If live count > 0, SKIP this step entirely.** (Single-subprocess invariant.)
+- For each subdirectory, read `worker.pid` and run `kill -0 <pid> 2>/dev/null` to check liveness.
+- If alive, look up the agent-state drawer for `agent-<id>` (or read its `role` from the path/context if your drawer lookup is slow) to bucket it:
+  - `live_tech_leads` — count of live agents with `role: tech-lead`
+  - `live_workers` — count of live agents with `role` in {junior, intermediate, senior}
 
-Otherwise, decide what to spawn:
+Read `max_workers` from `.hive/config.yaml` (default 3 if absent).
 
-#### 3a. Spawn priority 1 — tech-lead
+Continue regardless of counts — step 3a checks `live_tech_leads == 0`, step 3b loops on `live_workers < max_workers`.
+
+#### 3a. Spawn tech-lead (at most one concurrent)
+
+If `live_tech_leads > 0`, SKIP this sub-step entirely.
 
 `mempalace_list_drawers` wing=`hive` room=`requirements` → filter to drawers where `status` is `pending` (not `decomposed`, `in-flight`, `complete`, or `blocked`).
 
@@ -130,20 +138,44 @@ If at least one such requirement exists:
   - wing: `hive`, room: `agents`
   - frontmatter: `type: agent-state`, `status: live`, `role: tech-lead`, `team: <team>`, `current_requirement: <requirement title>`, `worktree: null`, `pid: <WORKER_PID>`, `started_at: <iso-now>`
   - title: `agent-<id>`
-- Done. Skip to step 4 (diary).
+- Increment `live_tech_leads` so step 3b's checks remain accurate within this tick.
+- Continue to step 3b (workers may also spawn this same tick).
 
-#### 3b. Spawn priority 2 — worker (only if no pending requirement was spawned above)
+#### 3b. Spawn-fill workers up to max_workers (loop)
 
-`mempalace_list_drawers` wing=`hive` room=`stories` → all stories.
+`mempalace_list_drawers` wing=`hive` room=`stories` → all stories. Compute the "ready" set: each story is ready iff:
 
-Build a "ready" set: each story is ready iff:
 - `status == pending`
 - For each title in `depends_on`: the matching story drawer has `status == merged`
 - Empty `depends_on` array counts as all deps satisfied
 
-If no ready story exists, NOTHING to spawn this tick. Skip to step 4.
+Sort the ready set by `created_at` ascending (oldest first). This produces topological order naturally — tech-leads emit stories in dependency order, so oldest-first picks the next runnable story consistently.
 
-Otherwise, pick the oldest ready story by `created_at`. Determine role from `story.points`:
+Now loop:
+
+```
+while live_workers < max_workers AND ready set is non-empty:
+    1. Pop the oldest ready story.
+    2. Determine role from story.points (table below). On non-Fibonacci, file a finding drawer
+       (kind=bug, "tech-lead emitted non-Fibonacci points value") and skip this story (continue loop).
+    3. Compute base branch:
+         if story.feature_branch is set → base_branch = story.feature_branch
+         else (legacy Phase 2.A story) → base_branch = main
+    4. Generate agent ID: openssl rand -hex 4
+    5. Create the worktree based on the feature branch:
+         git -C repos/<team> fetch origin <base_branch> --quiet
+         git -C repos/<team> worktree add ../<team>--<role>-<id> -b agent/<team>--<role>-<id> origin/<base_branch>
+    6. Create .hive/agents/<id>/ with started_at
+    7. Write context.md (template below — note the new "Base branch" line)
+    8. Spawn the worker subprocess (recipe unchanged from Phase 2.A — see template below)
+    9. File the agent-state drawer with current_story = story.title, worktree, pid, started_at
+   10. Update the story drawer: status=assigned, assigned_to=<id>
+   11. Increment live_workers
+```
+
+When the loop exits (either cap reached or no ready stories remain), continue to step 4 (diary).
+
+**Role routing table:**
 
 | points | role |
 |---|---|
@@ -152,89 +184,94 @@ Otherwise, pick the oldest ready story by `created_at`. Determine role from `sto
 | 8, 13 | `senior` |
 | (anything else) | log a finding (`kind: bug`, "tech-lead emitted non-Fibonacci points value"); skip this story |
 
-Then:
+**Worktree creation** (note the explicit base branch — different from P2.A):
 
-- Generate agent ID: `openssl rand -hex 4`.
-- Create the worktree:
-  ```bash
-  git -C repos/<team> worktree add ../<team>--<role>-<id> -b agent/<team>--<role>-<id>
-  ```
-- Create `.hive/agents/<id>/`:
-  ```bash
-  mkdir -p .hive/agents/<id>
-  date +%s > .hive/agents/<id>/started_at
-  ```
-- Write `.hive/agents/<id>/context.md`:
-  ```markdown
-  # Agent context — agent-<id>
+```bash
+git -C repos/<team> fetch origin <base_branch> --quiet
+git -C repos/<team> worktree add ../<team>--<role>-<id> -b agent/<team>--<role>-<id> origin/<base_branch>
+```
 
-  - **Your agent ID:** <id>
-  - **Your role:** <role>
-  - **Team:** <team>
-  - **Worktree:** repos/<team>--<role>-<id>
-  - **Branch:** agent/<team>--<role>-<id>
-  - **Story drawer ID:** <id>
-  - **Parent requirement:** <parent_requirement>
+**`context.md` template** (the new `Base branch` line tells the worker where its branch forked from):
 
-  ## Story
+```markdown
+# Agent context — agent-<id>
 
-  <story title>
+- **Your agent ID:** <id>
+- **Your role:** <role>
+- **Team:** <team>
+- **Worktree:** repos/<team>--<role>-<id>
+- **Branch:** agent/<team>--<role>-<id>
+- **Base branch:** <base_branch>
+- **Story drawer ID:** <id>
+- **Parent requirement:** <parent_requirement>
 
-  <story body>
+## Story
 
-  ## Acceptance criteria
+<story title>
 
-  <bullet list of story.acceptance_criteria — your contract>
+<story body>
 
-  ## What to do
+## Acceptance criteria
 
-  Invoke the hive-v2-<role> skill and follow it exactly. cd into your worktree
-  first. Read this file. Implement the story. Self-check every acceptance
-  criterion BEFORE committing. Commit, push, open a PR, file your outcome to
-  mempalace, exit.
-  ```
-- Spawn from workspace root:
-  ```bash
-  nohup claude --print --permission-mode acceptEdits \
-    --system-prompt-file "$(pwd)/.claude/skills/<role>.md" \
-    "You are agent <id>. Worktree: repos/<team>--<role>-<id>. Read .hive/agents/<id>/context.md and begin." \
-    > /dev/null 2>&1 &
-  WORKER_PID=$!
-  echo $WORKER_PID > .hive/agents/<id>/worker.pid
-  ```
-- File `agent-state` drawer:
-  - frontmatter: `type: agent-state`, `status: live`, `role: <role>`, `team: <team>`, `current_story: <title>`, `worktree: repos/<team>--<role>-<id>`, `pid: <WORKER_PID>`, `started_at: <iso-now>`
-- Update story drawer via `mempalace_update_drawer`: `status=assigned`, `assigned_to=<id>`.
+<bullet list of story.acceptance_criteria — your contract>
+
+## What to do
+
+Invoke the hive-v2-<role> skill and follow it exactly. cd into your worktree
+first. Read this file. Implement the story. Self-check every acceptance
+criterion BEFORE committing. Commit, push, open a PR, file your outcome to
+mempalace, exit.
+```
+
+**Spawn (unchanged from Phase 2.A):**
+
+```bash
+nohup claude --print --permission-mode acceptEdits \
+  --system-prompt-file "$(pwd)/.claude/skills/<role>.md" \
+  "You are agent <id>. Worktree: repos/<team>--<role>-<id>. Read .hive/agents/<id>/context.md and begin." \
+  > /dev/null 2>&1 &
+WORKER_PID=$!
+echo $WORKER_PID > .hive/agents/<id>/worker.pid
+```
+
+**agent-state drawer:**
+
+- frontmatter: `type: agent-state`, `status: live`, `role: <role>`, `team: <team>`, `current_story: <title>`, `worktree: repos/<team>--<role>-<id>`, `pid: <WORKER_PID>`, `started_at: <iso-now>`
+
+**Update story drawer** via `mempalace_update_drawer`: `status=assigned`, `assigned_to=<id>`.
 
 ### 4. Write a diary entry
 
 Use `mempalace_diary_write` with content:
 
 ```
-manager  tick-end  spawned=<role|none> reaped=<n> live=<n> pending_reqs=<n> ready_stories=<n> waiting_stories=<n>
+manager  tick-end  spawned=<roles-list|none> reaped=<n> live_workers=<n>/<max> live_tech_leads=<n>/1 pending_reqs=<n> ready_stories=<n> waiting_stories=<n>
 ```
 
 Where:
-- `<role|none>` is whichever role you spawned (`tech-lead`, `junior`, `intermediate`, `senior`) or `none` if nothing
-- `pending_reqs` = count of requirements with status=`pending` (not yet decomposed)
-- `ready_stories` = count of stories ready to run (deps met, status=pending)
-- `waiting_stories` = count of stories pending but NOT ready (unmet deps)
+- `<roles-list|none>` is a comma-joined list of every role spawned this tick (e.g. `tech-lead,junior,junior`) — order = spawn order. Use `none` only if NOTHING spawned this tick.
+- `<max>` in `live_workers=N/<max>` is the value of `max_workers` you read from `.hive/config.yaml`.
+- `live_tech_leads` is `0/1` or `1/1` — the slot is fixed at 1 in Phase 2.D.
+- `pending_reqs` = count of requirements with status=`pending` (not yet decomposed).
+- `ready_stories` = count of stories ready to run (deps met, status=pending).
+- `waiting_stories` = count of stories pending but NOT ready (unmet deps).
 
-## What success looks like (example: 3-story decomposition mid-flight)
+## What success looks like (example: spawn-fill mid-flight)
 
-Manager wakes up. Inbox has 1 file. mempalace has 1 requirement (status=`decomposed` from previous tick), 3 stories (one is `merged`, two are `pending`, one of those has its only dep — the merged one).
+Manager wakes up. mempalace has 1 requirement (status=`decomposed`), 3 stories all with `depends_on: []` and `feature_branch: feature/healthz` (just emitted by a tech-lead in the previous tick), zero live agents. `max_workers=3`.
 
-1. `Read` `.hive/inbox/req-...txt` → file 2nd requirement drawer (`status=pending`)
-2. `Bash` `mv .hive/inbox/req-... .hive/inbox/processed/`
-3. `mempalace_list_drawers` agents → 0 live
-4. `mempalace_list_drawers` stories → see 3 stories; merged one has no children to reap
-5. (Reap loop has nothing dead to clean — skip)
-6. Live count = 0
-7. Step 3a: any undecomposed requirement? YES (the new one just drained). Spawn tech-lead on it.
-8. `mempalace_add_drawer` agent-state, role=tech-lead
-9. `mempalace_diary_write` `manager  tick-end  spawned=tech-lead reaped=0 live=1 pending_reqs=1 ready_stories=1 waiting_stories=1`
+1. `Bash` `ls .hive/inbox/` → empty (skip drain).
+2. `mempalace_list_drawers` agents → 0 live (skip reap loop body).
+3. Compute split counts: `live_workers=0`, `live_tech_leads=0`.
+4. Step 3a: `live_tech_leads == 0` AND a pending requirement exists? NO (it's `decomposed`). Skip 3a.
+5. Step 3b loop:
+   - Iter 1: ready=3, `live_workers=0/3`. Pop oldest story; points=2 → junior. Compute base=`feature/healthz`. Worktree from `origin/feature/healthz`. Spawn. `live_workers=1`.
+   - Iter 2: ready=2, `live_workers=1/3`. Pop next; points=1 → junior. Spawn. `live_workers=2`.
+   - Iter 3: ready=1, `live_workers=2/3`. Pop next; points=1 → junior. Spawn. `live_workers=3`.
+   - Iter 4: `live_workers=3 == max`. Stop.
+6. Diary: `manager  tick-end  spawned=junior,junior,junior reaped=0 live_workers=3/3 live_tech_leads=0/1 pending_reqs=0 ready_stories=0 waiting_stories=0`.
 
-Exit. (The 2nd requirement gets decomposed by the tech-lead. The story that was ready in mempalace will be spawned on a NEXT tick when no agent is live.)
+Exit. Next tick reaps as workers exit at `review`; operator runs `hive merge` on each; subsequent ticks transition the requirement to `complete`.
 
 ## After-tick checklist
 
@@ -243,13 +280,14 @@ Before you exit, answer:
 - Did I move every drained inbox file to `processed/`?
 - For each drained inbox file, did I file a `requirement` drawer (and NOT also a story drawer)?
 - Did I reap every dead agent and properly transition its story (re-pend or escalate) and parent requirement (decomposed → in-flight, in-flight → complete)?
-- If I spawned a tech-lead, did I confirm no live agent existed first?
-- If I spawned a worker, did I confirm:
-  - No live agent existed
-  - No tech-lead was spawned earlier in this same tick
+- Did I compute `live_workers` and `live_tech_leads` separately (not as one combined count)?
+- If I spawned a tech-lead, did I confirm `live_tech_leads == 0` before doing so?
+- If I spawned workers, for each one did I confirm:
+  - `live_workers < max_workers` at the time of spawn (the loop counter is correct, but double-check)
   - The story's `depends_on` are ALL `merged`
-  - I picked the correct role for `story.points` (1-3 → junior, 5 → intermediate, 8/13 → senior)?
-- Did I write a diary entry with all 6 fields?
+  - I picked the correct role for `story.points` (1-3 → junior, 5 → intermediate, 8/13 → senior)
+  - I based the worktree on `story.feature_branch` (or `main` for legacy P2.A stories without that field)?
+- Did I write a diary entry with all 7 fields (`spawned`, `reaped`, `live_workers=N/max`, `live_tech_leads=N/1`, `pending_reqs`, `ready_stories`, `waiting_stories`)?
 
 If any answer is "no" without a clear reason, go back and complete it.
 
