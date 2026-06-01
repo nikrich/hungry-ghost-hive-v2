@@ -12,11 +12,11 @@ These are distinct from the skills under `assets/skills/` — those are hive's I
 
 ## Install
 
-Claude Code reads skills from `~/.claude/skills/`. Drop the skill file there:
+Claude Code reads skills from `~/.claude/skills/`. **Each skill must live in its own directory as `SKILL.md`** — a flat `*.md` file at the top level will not be discovered.
 
 ```sh
-mkdir -p ~/.claude/skills
-cp operator-skills/hive-operator.md ~/.claude/skills/
+mkdir -p ~/.claude/skills/hive-operator
+cp operator-skills/hive-operator.md ~/.claude/skills/hive-operator/SKILL.md
 ```
 
 That's it. The skill activates on relevant prompts (per its `description:` frontmatter — "install hive", "set up hive", "run hive", "queue a requirement", etc.) the next time you start a Claude Code session.
@@ -34,10 +34,17 @@ To verify it's loaded:
 When this repo's `hive-operator.md` changes, re-copy the latest:
 
 ```sh
-cp operator-skills/hive-operator.md ~/.claude/skills/
+cp operator-skills/hive-operator.md ~/.claude/skills/hive-operator/SKILL.md
 ```
 
-(Or symlink it once: `ln -s "$(pwd)/operator-skills/hive-operator.md" ~/.claude/skills/hive-operator.md` — symlink survives `git pull`s.)
+(Or symlink it once so `git pull`s flow through automatically:
+
+```sh
+mkdir -p ~/.claude/skills/hive-operator
+ln -s "$(pwd)/operator-skills/hive-operator.md" ~/.claude/skills/hive-operator/SKILL.md
+```
+
+The symlink survives `git pull`s — the file on disk is updated by git directly.)
 
 ## Authoring more operator skills
 
