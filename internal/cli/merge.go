@@ -111,7 +111,8 @@ func lookupAgentRole(wingRoot, agentID string) (string, error) {
 }
 
 // runGitMerge fetches, checks out the feature branch, merges the agent branch with --no-ff,
-// pushes, and restores the previous HEAD. On any error the previous HEAD is best-effort restored.
+// pushes, and restores the previous HEAD. On any error AFTER the checkout the previous HEAD
+// is best-effort restored (fetch-failure returns early because HEAD has not moved yet).
 func runGitMerge(workspaceRoot, team, featureBranch, agentBranch string) error {
 	repoDir := filepath.Join(workspaceRoot, "repos", team)
 	if _, err := os.Stat(repoDir); err != nil {
@@ -142,7 +143,7 @@ func runGitMerge(workspaceRoot, team, featureBranch, agentBranch string) error {
 		return fmt.Errorf("git pull %s: %w", featureBranch, err)
 	}
 	if err := gitRun(repoDir, "merge", "--no-ff", "--no-edit", "origin/"+agentBranch); err != nil {
-		_ = gitRun(repoDir, "merge", "--abort") // best effort
+		_ = gitRun(repoDir, "merge", "--abort") // best effort; the original merge error is the one returned
 		restoreHEAD()
 		return fmt.Errorf("git merge origin/%s: %w", agentBranch, err)
 	}
