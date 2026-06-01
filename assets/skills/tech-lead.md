@@ -9,7 +9,7 @@ description: Use ONLY when invoked as the hungry-ghost-hive-v2 tech-lead. Decomp
 
 - **YOU MUST NOT** explore the filesystem outside `.hive/` — do NOT `ls`, `find`, or `grep` in the team repo. Decompose from the requirement text alone.
 - **YOU MUST** decompose exactly one requirement and exit.
-- **YOU MUST NOT** use Edit, Write, or MultiEdit tools. Only `mempalace_*` MCP tools and Bash (for `cat .hive/agents/<id>/context.md`).
+- **YOU MUST NOT** use Edit, Write, or MultiEdit tools. Only `mempalace_*` MCP tools and Bash (for `cat .hive/agents/<id>/context.md` and creating the feature branch).
 - **YOU MUST NOT** spawn workers — only the manager spawns workers.
 - **YOU MUST** emit ≥ 1 `story` drawer via `mempalace_add_drawer`.
 - **YOU MUST** set `points` to a Fibonacci value (1, 2, 3, 5, 8, 13).
@@ -54,6 +54,37 @@ Break it into the smallest number of stories that fully cover the requirement. F
 - Titles must be UNIQUE within this requirement (you control them — verify before emitting).
 - The dependency graph must be a DAG. No cycles. No references to titles that don't exist.
 
+### 1.5. Create the feature branch on the remote
+
+Every requirement gets a per-requirement feature branch. All child stories will be implemented on worker branches that fork from this feature branch (not `main`), and `hive merge` later folds each agent branch back into it.
+
+**Compute the slug from the requirement title:**
+
+1. Lowercase
+2. Replace each run of non-alphanumeric characters with a single `-`
+3. Trim leading/trailing `-`
+4. Truncate at 50 characters (so the full ref `feature/<slug>` stays well under filesystem limits)
+5. Prefix with `feature/`
+
+Example: `"Add /healthz endpoint to the test API"` → `feature/add-healthz-endpoint-to-the-test-api`
+
+**Check for collision:**
+
+```bash
+git -C repos/<team> ls-remote --heads origin "feature/<slug>"
+```
+
+If the command prints a hit (non-empty stdout), append `-2`, then `-3`, etc., until the slug is unique.
+
+**Create the branch on the bare remote, forked from `origin/main`:**
+
+```bash
+git -C repos/<team> fetch origin main --quiet
+git -C repos/<team> push origin "refs/remotes/origin/main:refs/heads/feature/<slug>"
+```
+
+Record the resulting slug — every story drawer (step 2) gets it in the `feature_branch` field, and the requirement drawer update (step 3) gets it too.
+
 ### 2. Emit each story drawer
 
 For each story, in dependency order (deps first), call `mempalace_add_drawer`:
@@ -67,6 +98,7 @@ For each story, in dependency order (deps first), call `mempalace_add_drawer`:
   title: <short imperative summary, unique within this requirement>
   team: <team name from your context>
   points: <Fibonacci: 1, 2, 3, 5, 8, or 13>
+  feature_branch: <feature/<slug> from step 1.5>
   depends_on: [<other story titles in this requirement, or empty list>]
   acceptance_criteria:
     - "<testable condition>"
@@ -82,6 +114,7 @@ Call `mempalace_update_drawer` on the requirement drawer ID from your context:
 
 - `status: decomposed`
 - `decomposed_into: [<story titles in creation order>]`
+- `feature_branch: <feature/<slug> from step 1.5>`
 
 ### 4. Update your own agent-state drawer
 
@@ -103,13 +136,15 @@ tech-lead  decomposed  requirement=<title> stories=<N>
 
 A tech-lead given the requirement `"Add a /healthz endpoint to the test API. The endpoint must return JSON {\"status\": \"ok\"}. Include a unit test for it. Document it in the README under a new ## Health section."` does this:
 
-1. `Read` `.hive/agents/<id>/context.md` → requirement title + body
-2. `mempalace_add_drawer` story 1: "Implement /healthz handler" — points=2, depends_on=[], acceptance_criteria=["GET /healthz returns 200", "Response body is JSON {\"status\":\"ok\"}"]
-3. `mempalace_add_drawer` story 2: "Add /healthz unit test" — points=1, depends_on=["Implement /healthz handler"], acceptance_criteria=["Test file exists", "Test asserts 200 + body shape", "`go test ./...` passes"]
-4. `mempalace_add_drawer` story 3: "Document /healthz in README" — points=1, depends_on=["Implement /healthz handler"], acceptance_criteria=["README.md has a '## Health' section", "Section describes endpoint URL, method, response shape"]
-5. `mempalace_update_drawer` requirement → status=decomposed, decomposed_into=["Implement /healthz handler", "Add /healthz unit test", "Document /healthz in README"]
-6. `mempalace_update_drawer` agent-state → status=exited, exit_reason=completed
-7. `mempalace_diary_write` "tech-lead  decomposed  requirement=Add /healthz endpoint stories=3"
+0. `Read` `.hive/agents/<id>/context.md` → requirement title + body
+1. `Bash` `git -C repos/api ls-remote --heads origin "feature/add-healthz-endpoint"` → no hit; chosen slug is `feature/add-healthz-endpoint`
+2. `Bash` `git -C repos/api fetch origin main --quiet && git -C repos/api push origin refs/remotes/origin/main:refs/heads/feature/add-healthz-endpoint`
+3. `mempalace_add_drawer` story 1: "Implement /healthz handler" — points=2, feature_branch=feature/add-healthz-endpoint, depends_on=[], acceptance_criteria=["GET /healthz returns 200", "Response body is JSON {\"status\":\"ok\"}"]
+4. `mempalace_add_drawer` story 2: "Add /healthz unit test" — points=1, feature_branch=feature/add-healthz-endpoint, depends_on=["Implement /healthz handler"], acceptance_criteria=["Test file exists", "Test asserts 200 + body shape", "`go test ./...` passes"]
+5. `mempalace_add_drawer` story 3: "Document /healthz in README" — points=1, feature_branch=feature/add-healthz-endpoint, depends_on=["Implement /healthz handler"], acceptance_criteria=["README.md has a '## Health' section", "Section describes endpoint URL, method, response shape"]
+6. `mempalace_update_drawer` requirement → status=decomposed, decomposed_into=[...], feature_branch=feature/add-healthz-endpoint
+7. `mempalace_update_drawer` agent-state → status=exited, exit_reason=completed
+8. `mempalace_diary_write` "tech-lead  decomposed  requirement=Add /healthz endpoint stories=3 feature_branch=feature/add-healthz-endpoint"
 
 Exit.
 
@@ -135,6 +170,8 @@ DO NOT produce nonsense stories with vague acceptance criteria. Instead:
 - Are story titles unique within this requirement?
 - Did the requirement drawer get the `decomposed_into` update?
 - Did I emit a diary entry?
+- Did I create the feature branch on the remote (or confirm an existing collision-free slug)?
+- Does every emitted story drawer have `feature_branch` set to that same slug?
 
 If any answer is "no" without a clear reason, go back and complete it. The manager's next tick depends on the requirement being correctly marked.
 
