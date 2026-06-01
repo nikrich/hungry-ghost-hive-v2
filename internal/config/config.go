@@ -10,14 +10,16 @@ import (
 )
 
 type Team struct {
-	Name     string `yaml:"name"`
-	RepoURL  string `yaml:"repo_url"`
-	RepoPath string `yaml:"repo_path"`
+	Name        string `yaml:"name"`
+	RepoURL     string `yaml:"repo_url"`
+	RepoPath    string `yaml:"repo_path"`
+	TestCommand string `yaml:"test_command"` // Phase 2.C — QA runs this; default "go test ./..."
 }
 
 type Config struct {
 	WorkspaceSlug         string `yaml:"workspace_slug"`
 	MaxWorkers            int    `yaml:"max_workers"`
+	MaxQA                 int    `yaml:"max_qa"` // Phase 2.C — concurrent QA slots
 	TickIntervalSeconds   int    `yaml:"tick_interval_seconds"`
 	ManagerTimeoutSeconds int    `yaml:"manager_timeout_seconds"`
 	Teams                 []Team `yaml:"teams"`
@@ -56,10 +58,18 @@ func (c *Config) applyDefaults() {
 	if c.MaxWorkers == 0 {
 		c.MaxWorkers = 3
 	}
+	if c.MaxQA == 0 {
+		c.MaxQA = 2
+	}
 	if c.TickIntervalSeconds == 0 {
 		c.TickIntervalSeconds = 60
 	}
 	if c.ManagerTimeoutSeconds == 0 {
 		c.ManagerTimeoutSeconds = 480
+	}
+	for i := range c.Teams {
+		if c.Teams[i].TestCommand == "" {
+			c.Teams[i].TestCommand = "go test ./..."
+		}
 	}
 }

@@ -64,11 +64,38 @@ teams: []
 	if cfg.MaxWorkers != 3 {
 		t.Errorf("MaxWorkers default: got %d, want 3", cfg.MaxWorkers)
 	}
+	if cfg.MaxQA != 2 {
+		t.Errorf("MaxQA default: got %d, want 2", cfg.MaxQA)
+	}
 	if cfg.TickIntervalSeconds != 60 {
 		t.Errorf("TickIntervalSeconds default: got %d, want 60", cfg.TickIntervalSeconds)
 	}
 	if cfg.ManagerTimeoutSeconds != 480 {
 		t.Errorf("ManagerTimeoutSeconds default: got %d, want 480", cfg.ManagerTimeoutSeconds)
+	}
+}
+
+func TestLoad_DefaultsPerTeamTestCommand(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	yaml := `workspace_slug: x
+teams:
+  - name: a
+  - name: b
+    test_command: pytest -q
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Teams[0].TestCommand != "go test ./..." {
+		t.Errorf("Teams[a].TestCommand default: got %q, want %q", cfg.Teams[0].TestCommand, "go test ./...")
+	}
+	if cfg.Teams[1].TestCommand != "pytest -q" {
+		t.Errorf("Teams[b].TestCommand override: got %q, want %q", cfg.Teams[1].TestCommand, "pytest -q")
 	}
 }
 

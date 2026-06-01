@@ -72,14 +72,16 @@ func RunInit(opts InitOptions) error {
 	cfg := config.Config{
 		WorkspaceSlug:         opts.WorkspaceSlug,
 		MaxWorkers:            3,
+		MaxQA:                 2,
 		TickIntervalSeconds:   60,
 		ManagerTimeoutSeconds: 480,
 	}
 	for _, t := range opts.Teams {
 		cfg.Teams = append(cfg.Teams, config.Team{
-			Name:     t.Name,
-			RepoURL:  t.URL,
-			RepoPath: filepath.Join("repos", t.Name),
+			Name:        t.Name,
+			RepoURL:     t.URL,
+			RepoPath:    filepath.Join("repos", t.Name),
+			TestCommand: "go test ./...",
 		})
 	}
 

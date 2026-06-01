@@ -46,6 +46,13 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer proc.ClearPidFile(watchdogPid)
 
+	// Phase 2.C: write the absolute path of THIS hive binary into the workspace
+	// so the manager and QA subprocesses can invoke `$(cat .hive/hive_binary) merge ...`
+	// without depending on a global PATH containing the right v2 binary.
+	if exe, err := os.Executable(); err == nil {
+		_ = os.WriteFile(filepath.Join(hiveDir, "hive_binary"), []byte(exe+"\n"), 0o644)
+	}
+
 	appendLog(watchdogLog, "watchdog start pid=%d tick=%s", os.Getpid(), opts.TickInterval)
 	defer appendLog(watchdogLog, "watchdog stop")
 

@@ -76,7 +76,7 @@ For each subdirectory in `.hive/agents/`:
 - Best-effort worktree cleanup: `git -C repos/<team> worktree remove ../<team>--<role>-<id> --force` (ignore failure).
 - Remove the directory: `rm -rf .hive/agents/<id>`.
 
-### 3. Spawn (tech-lead + workers, in that order)
+### 3. Spawn (tech-lead + workers + QA, in that order)
 
 Compute the split live counts by walking `.hive/agents/<id>/`:
 
@@ -84,10 +84,12 @@ Compute the split live counts by walking `.hive/agents/<id>/`:
 - If alive, look up the agent-state drawer for `agent-<id>` (or read its `role` from the path/context if your drawer lookup is slow) to bucket it:
   - `live_tech_leads` — count of live agents with `role: tech-lead`
   - `live_workers` — count of live agents with `role` in {junior, intermediate, senior}
+  - `live_qa` — count of live agents with `role: qa` (Phase 2.C)
+  - For each live `qa` agent, also remember its `current_story` so step 3c can avoid double-spawn
 
-Read `max_workers` from `.hive/config.yaml` (default 3 if absent).
+Read `max_workers` AND `max_qa` from `.hive/config.yaml` (defaults: 3 and 2).
 
-Continue regardless of counts — step 3a checks `live_tech_leads == 0`, step 3b loops on `live_workers < max_workers`.
+Continue regardless of counts — step 3a checks `live_tech_leads == 0`, step 3b loops on `live_workers < max_workers`, step 3c loops on `live_qa < max_qa` AND filters out stories already in QA.
 
 #### 3a. Spawn tech-lead (at most one concurrent)
 
@@ -242,21 +244,92 @@ echo $WORKER_PID > .hive/agents/<id>/worker.pid
 
 **Update story drawer** via `mempalace_update_drawer`: `status=assigned`, `assigned_to=<id>`.
 
+#### 3c. Spawn-fill QA up to max_qa (loop) — Phase 2.C
+
+`mempalace_list_drawers` wing=`hive` room=`stories` → filter to drawers where `status == review`.
+
+Sort the resulting set by `created_at` ascending (oldest review first — same fairness rule as 3b).
+
+Now loop:
+
+```
+while live_qa < max_qa AND review set is non-empty:
+    1. Pop the oldest review story.
+    2. If any live QA agent has current_story == story.title → skip (already in QA), continue loop.
+    3. Generate agent ID: openssl rand -hex 4
+    4. Look up the worker who produced this story via story.assigned_to → expected worktree
+       is repos/<team>--<role>-<assigned_to>. Look up role from the worker's agent-state drawer
+       (room=agents, body contains "agent-<assigned_to>") so the worktree path is correct.
+       (Workers run in junior/intermediate/senior, so role is one of those three.)
+    5. Create .hive/agents/<id>/ with started_at
+    6. Write context.md (template below — includes story title, team, test_command from
+       team config, agent branch, worker worktree path)
+    7. Spawn the QA subprocess (recipe below — no new worktree; QA cds into the worker's existing one)
+    8. File agent-state drawer: role=qa, status=live, current_story=<story title>, team=<team>,
+       pid=<pid>, started_at=<iso-now>
+    9. DO NOT modify the story drawer — QA owns that transition
+   10. Increment live_qa AND record current_story for the no-double-spawn guard above
+```
+
+When the loop exits, continue to step 4 (diary).
+
+**`context.md` template for QA spawn:**
+
+```markdown
+# Agent context — agent-<id>
+
+- **Your agent ID:** <id>
+- **Your role:** qa
+- **Team:** <team>
+- **Story under review:** <story title>
+- **Test command:** <test_command from .hive/config.yaml teams[].test_command>
+- **Worker's agent branch:** agent/<team>--<worker_role>-<assigned_to>
+- **Worker's worktree:** repos/<team>--<worker_role>-<assigned_to>
+- **Parent requirement:** <parent_requirement>
+
+## Acceptance criteria (informational — minimal QA only runs the test command)
+
+<bullet list of story.acceptance_criteria>
+
+## What to do
+
+Invoke the hive-v2-qa skill and follow it exactly. cd into the worker's worktree,
+run the test command, then on pass call `$(cat <WORKSPACE_ROOT>/.hive/hive_binary) merge "<exact story title>"`;
+on fail file a finding and flip the story back to status=pending with retry_count++.
+
+Note: the watchdog writes the absolute hive binary path to `.hive/hive_binary` at startup
+so you don't depend on `hive` being on PATH (a legacy v1 install may shadow v2).
+```
+
+**Spawn (Phase 1.5 + 2.C: pinned MCP config, qa.md skill):**
+
+```bash
+nohup claude --print --permission-mode acceptEdits \
+  --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
+  --system-prompt-file "$(pwd)/.claude/skills/qa.md" \
+  "You are QA agent <id>. Story under review: <story title>. Read .hive/agents/<id>/context.md and begin." \
+  > /dev/null 2>&1 &
+WORKER_PID=$!
+echo $WORKER_PID > .hive/agents/<id>/worker.pid
+```
+
 ### 4. Write a diary entry
 
 Use `mempalace_diary_write` with content:
 
 ```
-manager  tick-end  spawned=<roles-list|none> reaped=<n> live_workers=<n>/<max> live_tech_leads=<n>/1 pending_reqs=<n> ready_stories=<n> waiting_stories=<n>
+manager  tick-end  spawned=<roles-list|none> reaped=<n> live_workers=<n>/<max> live_tech_leads=<n>/1 live_qa=<n>/<max_qa> pending_reqs=<n> ready_stories=<n> waiting_stories=<n> review_stories=<n>
 ```
 
 Where:
-- `<roles-list|none>` is a comma-joined list of every role spawned this tick (e.g. `tech-lead,junior,junior`) — order = spawn order. Use `none` only if NOTHING spawned this tick.
+- `<roles-list|none>` is a comma-joined list of every role spawned this tick (e.g. `tech-lead,junior,junior,qa`) — order = spawn order. `qa` may appear alongside workers. Use `none` only if NOTHING spawned this tick.
 - `<max>` in `live_workers=N/<max>` is the value of `max_workers` you read from `.hive/config.yaml`.
-- `live_tech_leads` is `0/1` or `1/1` — the slot is fixed at 1 in Phase 2.D.
+- `live_tech_leads` is `0/1` or `1/1` — the slot is fixed at 1.
+- `<max_qa>` in `live_qa=N/<max_qa>` is the value of `max_qa` (default 2) from `.hive/config.yaml` (Phase 2.C).
 - `pending_reqs` = count of requirements with status=`pending` (not yet decomposed).
 - `ready_stories` = count of stories ready to run (deps met, status=pending).
 - `waiting_stories` = count of stories pending but NOT ready (unmet deps).
+- `review_stories` = count of stories at status=`review` (Phase 2.C — these are the ones QA will spawn for).
 
 ## What success looks like (example: spawn-fill mid-flight)
 
@@ -289,7 +362,11 @@ Before you exit, answer:
   - The story's `depends_on` are ALL `merged`
   - I picked the correct role for `story.points` (1-3 → junior, 5 → intermediate, 8/13 → senior)
   - I based the worktree on `story.feature_branch` (or `main` for legacy P2.A stories without that field)?
-- Did I write a diary entry with all 7 fields (`spawned`, `reaped`, `live_workers=N/max`, `live_tech_leads=N/1`, `pending_reqs`, `ready_stories`, `waiting_stories`)?
+- For each QA I spawned (Phase 2.C), did I confirm:
+  - `live_qa < max_qa` at the time of spawn
+  - No other live QA already had `current_story == this story.title`
+  - The QA context.md included the team's `test_command` from `.hive/config.yaml`
+- Did I write a diary entry with all 9 fields (`spawned`, `reaped`, `live_workers=N/max`, `live_tech_leads=N/1`, `live_qa=N/max_qa`, `pending_reqs`, `ready_stories`, `waiting_stories`, `review_stories`)?
 
 If any answer is "no" without a clear reason, go back and complete it.
 
