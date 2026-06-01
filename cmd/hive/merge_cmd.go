@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/cli"
@@ -27,7 +28,7 @@ Phase 2.C's QA role will call this same primitive once it exists.`,
 			}
 			ws, err := paths.FindWorkspaceRoot(cwd)
 			if err != nil {
-				return err
+				return errors.New("not inside a hive workspace (no .hive/ in ancestry)")
 			}
 			return cli.RunMerge(cli.MergeOptions{
 				WorkspaceRoot: ws,
