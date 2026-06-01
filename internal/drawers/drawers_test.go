@@ -123,3 +123,36 @@ Implement the actual handler.
 	}
 	// DecomposedInto: empty list parses to non-nil zero-length slice OR nil — both acceptable.
 }
+
+func TestList_ParsesPhase2DFields(t *testing.T) {
+	tmp := t.TempDir()
+	body := `---
+type: story
+status: merged
+title: Implement /healthz handler
+team: api
+points: 2
+feature_branch: feature/add-healthz-endpoint
+merged_at: "2026-06-01T10:30:00Z"
+---
+
+Body.
+`
+	writeDrawer(t, filepath.Join(tmp, "rooms", "stories", "STORY-impl.md"), body)
+
+	got, err := List(tmp, "stories")
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d drawers, want 1", len(got))
+	}
+	d := got[0]
+
+	if d.FeatureBranch != "feature/add-healthz-endpoint" {
+		t.Errorf("FeatureBranch: got %q, want feature/add-healthz-endpoint", d.FeatureBranch)
+	}
+	if d.MergedAt != "2026-06-01T10:30:00Z" {
+		t.Errorf("MergedAt: got %q, want 2026-06-01T10:30:00Z", d.MergedAt)
+	}
+}

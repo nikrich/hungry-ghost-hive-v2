@@ -35,6 +35,10 @@ type Drawer struct {
 	DecomposedInto     []string `yaml:"decomposed_into"`
 	CurrentRequirement string   `yaml:"current_requirement"`
 
+	// Phase 2.D — feature branch + merge timestamp
+	FeatureBranch string `yaml:"feature_branch"`
+	MergedAt      string `yaml:"merged_at"`
+
 	Path string `yaml:"-"` // filesystem path, set by List
 	Body string `yaml:"-"` // markdown body after the frontmatter
 }
