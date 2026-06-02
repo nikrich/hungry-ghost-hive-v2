@@ -26,7 +26,8 @@ The watchdog re-invokes you each tick. State persists in mempalace + the workspa
 3a. Spawn tech-lead (if needed, slot free)
 3b. Spawn-fill workers up to max_workers   →  loop: while live_workers < max_workers && ready stories
 4. Diary entry
-5. Exit
+5. Write .hive/last-tick.json (idle-backoff signal — see step 5)
+6. Exit
 ```
 
 Reap moves BEFORE spawn so a just-finished agent frees its slot for the next role. Step 3a runs first but does NOT block step 3b — both can spawn in the same tick.
@@ -331,6 +332,29 @@ Where:
 - `waiting_stories` = count of stories pending but NOT ready (unmet deps).
 - `review_stories` = count of stories at status=`review` (Phase 2.C — these are the ones QA will spawn for).
 
+### 5. Write the idle-backoff signal (`.hive/last-tick.json`)
+
+After the diary entry, write a JSON snapshot of this tick to `.hive/last-tick.json`. The watchdog reads this to decide whether to extend the next sleep — if every field is zero the system is fully idle and the next tick can wait longer than the base `tick_interval_seconds`. Without this file the watchdog assumes non-idle and never backs off.
+
+Use Bash heredoc:
+
+```bash
+cat > .hive/last-tick.json <<JSON
+{
+  "spawned": <total roles spawned this tick — 0 if none>,
+  "pending_reqs": <count from diary>,
+  "ready_stories": <count from diary>,
+  "review_stories": <count from diary>,
+  "live_workers": <count from diary, post-spawn>,
+  "live_tech_leads": <count from diary, post-spawn>,
+  "live_qa": <count from diary, post-spawn>,
+  "ts": $(date +%s)
+}
+JSON
+```
+
+All integer fields. If something in step 1-4 failed and you're about to exit early, still write this file with whatever counts you have — the watchdog falls back to the base interval on a missing/corrupt file, which is safe but wastes a tick.
+
 ## What success looks like (example: spawn-fill mid-flight)
 
 Manager wakes up. mempalace has 1 requirement (status=`decomposed`), 3 stories all with `depends_on: []` and `feature_branch: feature/healthz` (just emitted by a tech-lead in the previous tick), zero live agents. `max_workers=3`.
@@ -367,6 +391,7 @@ Before you exit, answer:
   - No other live QA already had `current_story == this story.title`
   - The QA context.md included the team's `test_command` from `.hive/config.yaml`
 - Did I write a diary entry with all 9 fields (`spawned`, `reaped`, `live_workers=N/max`, `live_tech_leads=N/1`, `live_qa=N/max_qa`, `pending_reqs`, `ready_stories`, `waiting_stories`, `review_stories`)?
+- Did I write `.hive/last-tick.json` with the 7 integer counts and `ts`? (Required for the watchdog's idle-backoff logic — without it the watchdog never extends its sleep.)
 
 If any answer is "no" without a clear reason, go back and complete it.
 

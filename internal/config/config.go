@@ -17,12 +17,14 @@ type Team struct {
 }
 
 type Config struct {
-	WorkspaceSlug         string `yaml:"workspace_slug"`
-	MaxWorkers            int    `yaml:"max_workers"`
-	MaxQA                 int    `yaml:"max_qa"` // Phase 2.C — concurrent QA slots
-	TickIntervalSeconds   int    `yaml:"tick_interval_seconds"`
-	ManagerTimeoutSeconds int    `yaml:"manager_timeout_seconds"`
-	Teams                 []Team `yaml:"teams"`
+	WorkspaceSlug         string  `yaml:"workspace_slug"`
+	MaxWorkers            int     `yaml:"max_workers"`
+	MaxQA                 int     `yaml:"max_qa"` // Phase 2.C — concurrent QA slots
+	TickIntervalSeconds   int     `yaml:"tick_interval_seconds"`
+	ManagerTimeoutSeconds int     `yaml:"manager_timeout_seconds"`
+	IdleBackoffMaxSeconds int     `yaml:"idle_backoff_max_seconds"` // cap for exponential backoff on consecutive idle ticks; set ≤ tick_interval_seconds to disable
+	IdleBackoffFactor     float64 `yaml:"idle_backoff_factor"`      // multiplier per consecutive idle tick
+	Teams                 []Team  `yaml:"teams"`
 }
 
 // Load reads, parses, validates, and applies defaults to a config file.
@@ -66,6 +68,12 @@ func (c *Config) applyDefaults() {
 	}
 	if c.ManagerTimeoutSeconds == 0 {
 		c.ManagerTimeoutSeconds = 480
+	}
+	if c.IdleBackoffMaxSeconds == 0 {
+		c.IdleBackoffMaxSeconds = 600
+	}
+	if c.IdleBackoffFactor == 0 {
+		c.IdleBackoffFactor = 2.0
 	}
 	for i := range c.Teams {
 		if c.Teams[i].TestCommand == "" {

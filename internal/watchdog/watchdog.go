@@ -19,11 +19,13 @@ import (
 
 // Options controls Run.
 type Options struct {
-	WorkspaceRoot  string
-	TickInterval   time.Duration
-	ManagerTimeout time.Duration
-	ClaudeBinary   string // default "claude"
-	ManagerPrompt  string // appended to system prompt
+	WorkspaceRoot     string
+	TickInterval      time.Duration
+	ManagerTimeout    time.Duration
+	ClaudeBinary      string        // default "claude"
+	ManagerPrompt     string        // appended to system prompt
+	IdleBackoffMax    time.Duration // cap on the exponential idle-tick backoff; set ≤ TickInterval to disable
+	IdleBackoffFactor float64       // multiplier per consecutive idle tick (e.g. 2.0)
 }
 
 // Run executes the supervisor loop until SIGTERM/SIGINT or context cancellation.
@@ -64,11 +66,16 @@ func Run(ctx context.Context, opts Options) error {
 		appendLog(watchdogLog, "skills synced from embed")
 	}
 
-	appendLog(watchdogLog, "watchdog start pid=%d tick=%s", os.Getpid(), opts.TickInterval)
+	appendLog(watchdogLog, "watchdog start pid=%d tick=%s idle_backoff_max=%s factor=%v",
+		os.Getpid(), opts.TickInterval, opts.IdleBackoffMax, opts.IdleBackoffFactor)
 	defer appendLog(watchdogLog, "watchdog stop")
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	tickSummaryPath := filepath.Join(hiveDir, "last-tick.json")
+	inboxDir := filepath.Join(hiveDir, "inbox")
+	consecutiveIdle := 0
 
 	for {
 		select {
@@ -103,14 +110,97 @@ func Run(ctx context.Context, opts Options) error {
 			appendLog(watchdogLog, "post-tick sync error=%v (continuing)", syncErr)
 		}
 
+		// Idle-tick backoff. The manager writes .hive/last-tick.json at the end
+		// of every tick; if everything in it is zero, this tick did no work and
+		// we can extend the next sleep. Missing/corrupt summary → assume non-idle
+		// (safer than over-backing-off on a manager crash). The poll loop below
+		// breaks early if the operator drops a requirement into the inbox.
+		summary, summaryErr := ReadTickSummary(tickSummaryPath)
+		switch {
+		case summaryErr != nil:
+			consecutiveIdle = 0
+		case summary.IsIdle():
+			consecutiveIdle++
+		default:
+			consecutiveIdle = 0
+		}
+		sleep := NextDelay(opts.TickInterval, opts.IdleBackoffMax, opts.IdleBackoffFactor, consecutiveIdle)
+		if sleep != opts.TickInterval {
+			appendLog(watchdogLog, "idle backoff consecutive=%d next_sleep=%s", consecutiveIdle, sleep)
+		}
+		if sleepInterrupted(ctx, sigCh, inboxDir, sleep) {
+			if consecutiveIdle > 0 {
+				appendLog(watchdogLog, "inbox change → cancel idle backoff (was consecutive=%d)", consecutiveIdle)
+			}
+			consecutiveIdle = 0
+		}
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-sigCh:
 			return nil
-		case <-time.After(opts.TickInterval):
+		default:
 		}
 	}
+}
+
+// sleepInterrupted blocks for up to total, polling inboxDir every pollInterval.
+// Returns true when an inbox file appeared/disappeared (operator dropped a
+// requirement) so the caller can reset backoff. Returns false on natural
+// expiry, ctx cancel, or signal. Polling is cheap and avoids an fsnotify dep.
+func sleepInterrupted(ctx context.Context, sigCh <-chan os.Signal, inboxDir string, total time.Duration) bool {
+	const pollInterval = 5 * time.Second
+	if total <= pollInterval {
+		select {
+		case <-ctx.Done():
+		case <-sigCh:
+		case <-time.After(total):
+		}
+		return false
+	}
+	deadline := time.Now().Add(total)
+	baseline := inboxFingerprint(inboxDir)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-sigCh:
+			return false
+		case <-ticker.C:
+			if inboxFingerprint(inboxDir) != baseline {
+				return true
+			}
+			if time.Now().After(deadline) {
+				return false
+			}
+		}
+	}
+}
+
+// inboxFingerprint is a cheap "did anything change" hash of inbox contents.
+// We avoid pulling fsnotify; entry count + newest mtime is enough to catch
+// the operator dropping a new req-*.txt file. Missing dir → zero.
+func inboxFingerprint(inboxDir string) int64 {
+	entries, err := os.ReadDir(inboxDir)
+	if err != nil {
+		return 0
+	}
+	var newest int64
+	count := int64(0)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue // skip processed/
+		}
+		count++
+		if info, err := e.Info(); err == nil {
+			if mt := info.ModTime().UnixNano(); mt > newest {
+				newest = mt
+			}
+		}
+	}
+	return count*1_000_000_000 + newest
 }
 
 func runOneTick(opts Options, managerPid, managerLog string) error {
