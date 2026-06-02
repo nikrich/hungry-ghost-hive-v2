@@ -128,9 +128,9 @@ If at least one such requirement exists:
   Update the requirement drawer to status=decomposed (or status=blocked if too
   vague to decompose). Exit.
   ```
-- Spawn (tech-leads have NO worktree — they spawn from workspace root):
+- Spawn (tech-leads have NO worktree — they spawn from workspace root). `--bare --disable-slash-commands` skips hooks, LSP, plugin sync, auto-memory, CLAUDE.md discovery, and skill catalog loading — the role is already provided via `--system-prompt-file` and MCP via `--mcp-config`:
   ```bash
-  nohup claude --print --permission-mode acceptEdits \
+  nohup claude --print --bare --disable-slash-commands --permission-mode acceptEdits \
     --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
     --system-prompt-file "$(pwd)/.claude/skills/tech-lead.md" \
     "You are agent <id>. Read .hive/agents/<id>/context.md and decompose the requirement." \
@@ -229,12 +229,12 @@ criterion BEFORE committing. Commit, push, open a PR, file your outcome to
 mempalace, exit.
 ```
 
-**Spawn (Phase 1.5: pinned MCP config so the mempalace gateway points at workspace-local memory; Phase 2.H: per-tier model so juniors run on Haiku):**
+**Spawn (Phase 1.5: pinned MCP config so the mempalace gateway points at workspace-local memory; Phase 2.H: per-tier model so juniors run on Haiku; `--bare --disable-slash-commands` skips hooks, LSP, plugin sync, auto-memory, CLAUDE.md discovery, and skill catalog loading — the role is already provided via `--system-prompt-file`):**
 
 `<model>` below = the value of the matching `model_for_*` config key (see model routing table above). Read it once from `.hive/config.yaml` at the start of step 3b and substitute per spawn.
 
 ```bash
-nohup claude --print --model <model> --permission-mode acceptEdits \
+nohup claude --print --model <model> --bare --disable-slash-commands --permission-mode acceptEdits \
   --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
   --system-prompt-file "$(pwd)/.claude/skills/<role>.md" \
   "You are agent <id>. Worktree: repos/<team>--<role>-<id>. Read .hive/agents/<id>/context.md and begin." \
@@ -306,10 +306,10 @@ Note: the watchdog writes the absolute hive binary path to `.hive/hive_binary` a
 so you don't depend on `hive` being on PATH (a legacy v1 install may shadow v2).
 ```
 
-**Spawn (Phase 1.5 + 2.C: pinned MCP config, qa.md skill):**
+**Spawn (Phase 1.5 + 2.C: pinned MCP config, qa.md skill; Phase 2.H: `--bare --disable-slash-commands` cuts startup overhead — see worker spawn above for rationale):**
 
 ```bash
-nohup claude --print --permission-mode acceptEdits \
+nohup claude --print --bare --disable-slash-commands --permission-mode acceptEdits \
   --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
   --system-prompt-file "$(pwd)/.claude/skills/qa.md" \
   "You are QA agent <id>. Story under review: <story title>. Read .hive/agents/<id>/context.md and begin." \

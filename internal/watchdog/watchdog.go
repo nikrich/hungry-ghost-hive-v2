@@ -222,9 +222,19 @@ func runOneTick(opts Options, managerPid, managerLog string) error {
 	// mempalace gateway picks up MEMPALACE_ROOT=<workspace>/.hive/memory.
 	// --strict-mcp-config ignores the user-level ~/.claude.json which would
 	// otherwise point the gateway at a global memory store.
+	// Phase 2.H: --bare skips hooks, LSP, plugin sync, auto-memory, CLAUDE.md
+	// auto-discovery, and other startup features hive subprocesses don't use.
+	// --disable-slash-commands skips skill catalog loading (the role is already
+	// inlined as the system prompt via --system-prompt-file). Together they
+	// shave a sizable chunk off every manager tick's spawn cost. MCP and the
+	// explicit system prompt still work — see `claude --help` for `--bare`'s
+	// "explicitly provide context via" list, which includes --mcp-config and
+	// --system-prompt-file.
 	cmd := exec.Command(
 		opts.ClaudeBinary,
 		"--print",
+		"--bare",
+		"--disable-slash-commands",
 		"--permission-mode", "acceptEdits",
 		"--mcp-config", mcpConfigPath,
 		"--strict-mcp-config",
