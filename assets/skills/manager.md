@@ -66,6 +66,13 @@ For each subdirectory in `.hive/agents/`:
 - If the requirement drawer is now `status=decomposed` or `status=blocked`: tech-lead completed (success or clarification-needed). Update agent-state: `status=exited`, `exit_reason=<completed|escalated>`, `ended_at=<iso-now>`. (The tech-lead's skill should have already done this — only update if it didn't.)
 - Best-effort cleanup: `rm -rf .hive/agents/<id>`.
 
+**QA reaping (Phase 2.H — script-QA agents have an additional outcome file):**
+- If the agent-state drawer has `role: qa` AND `qa_kind: script`, this is a script-QA agent. Read `.hive/agents/<id>/qa-result`:
+  - **`pass`**: tests passed and merge succeeded. The script already called `hive merge`, so the story drawer is at `status=merged`. Update agent-state: `status=exited`, `exit_reason=passed`, `ended_at=<iso-now>`. Continue to the normal worker-reap requirement-transition logic below (so the parent requirement flips to `complete` when its last story merges).
+  - **`fail-test` / `fail-merge` / `fail-setup`**: the script could not auto-resolve. Update the story drawer via `mempalace_update_drawer`: keep `status=review`, set `script_qa_attempted=true` (NEW field — frontmatter addition). Next tick's step 3c will spawn an LLM-QA for this story instead of re-running the script. Update agent-state: `status=exited`, `exit_reason=script-<fail-test|fail-merge|fail-setup>`, `ended_at=<iso-now>`. **Do NOT delete `.hive/agents/<id>/` yet** — leave the qa-fail.log around so the LLM-QA's context.md can point at it for evidence. The next tick's reap pass will clean it up after the LLM-QA also exits.
+  - **Missing qa-result file**: the script crashed before writing it. Treat as `fail-setup`.
+- LLM-QA agents (no `qa_kind` field, or `qa_kind: llm`) follow the existing worker-reap path below (they update the story drawer themselves via the qa.md skill).
+
 **Worker reaping:**
 - Find the worker's story drawer.
 - **If `story.status` is `review` or `merged`:** worker completed successfully. Update agent-state via `mempalace_update_drawer`: `status=exited`, `exit_reason=completed`, `ended_at=<iso-now>`.
@@ -261,19 +268,27 @@ Now loop:
 while live_qa < max_qa AND review set is non-empty:
     1. Pop the oldest review story.
     2. If any live QA agent has current_story == story.title → skip (already in QA), continue loop.
-    3. Generate agent ID: openssl rand -hex 4
-    4. Look up the worker who produced this story via story.assigned_to → expected worktree
+    3. Decide QA path (Phase 2.H):
+         if story.script_qa_attempted == true → SPAWN LLM-QA (the existing claude --print qa.md path)
+         else → SPAWN SCRIPT-QA (`hive qa-run` Go subcommand, no claude subprocess)
+       Script-QA handles the happy path (tests pass + clean merge) for zero LLM tokens.
+       On any failure it writes .hive/agents/<id>/qa-result=fail-* and the reap step
+       below flips story.script_qa_attempted=true so the next tick spawns the LLM.
+    4. Generate agent ID: openssl rand -hex 4
+    5. Look up the worker who produced this story via story.assigned_to → expected worktree
        is repos/<team>--<role>-<assigned_to>. Look up role from the worker's agent-state drawer
        (room=agents, body contains "agent-<assigned_to>") so the worktree path is correct.
        (Workers run in junior/intermediate/senior, so role is one of those three.)
-    5. Create .hive/agents/<id>/ with started_at
-    6. Write context.md (template below — includes story title, team, test_command from
-       team config, agent branch, worker worktree path)
-    7. Spawn the QA subprocess (recipe below — no new worktree; QA cds into the worker's existing one)
-    8. File agent-state drawer: role=qa, status=live, current_story=<story title>, team=<team>,
-       pid=<pid>, started_at=<iso-now>
-    9. DO NOT modify the story drawer — QA owns that transition
-   10. Increment live_qa AND record current_story for the no-double-spawn guard above
+    6. Create .hive/agents/<id>/ with started_at
+    7. Script-QA path: no context.md needed (the Go binary reads everything from drawers + config).
+       LLM-QA path: write context.md (template below — includes story title, team, test_command,
+       agent branch, worker worktree path, AND the path to the prior qa-fail.log so the LLM has
+       evidence of what the script tripped on).
+    8. Spawn the QA subprocess (one of the two recipes below, per step 3 decision)
+    9. File agent-state drawer: role=qa, qa_kind=script|llm, status=live, current_story=<story title>,
+       team=<team>, pid=<pid>, started_at=<iso-now>
+   10. DO NOT modify the story drawer — QA owns that transition
+   11. Increment live_qa AND record current_story for the no-double-spawn guard above
 ```
 
 When the loop exits, continue to step 4 (diary).
@@ -306,13 +321,23 @@ Note: the watchdog writes the absolute hive binary path to `.hive/hive_binary` a
 so you don't depend on `hive` being on PATH (a legacy v1 install may shadow v2).
 ```
 
-**Spawn (Phase 1.5 + 2.C: pinned MCP config, qa.md skill; Phase 2.H: `--bare --disable-slash-commands` cuts startup overhead — see worker spawn above for rationale):**
+**Script-QA spawn (Phase 2.H — happy path, zero claude tokens):**
+
+```bash
+HIVE_BIN=$(cat .hive/hive_binary)
+nohup "$HIVE_BIN" qa-run --story "<exact story title>" --agent-id "<id>" \
+  > .hive/agents/<id>/qa.log 2>&1 &
+WORKER_PID=$!
+echo $WORKER_PID > .hive/agents/<id>/worker.pid
+```
+
+**LLM-QA spawn (fallback after a script-QA failure — Phase 1.5 + 2.C: pinned MCP config, qa.md skill; Phase 2.H: `--bare --disable-slash-commands` cuts startup overhead — see worker spawn above for rationale):**
 
 ```bash
 nohup claude --print --bare --disable-slash-commands --permission-mode acceptEdits \
   --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
   --system-prompt-file "$(pwd)/.claude/skills/qa.md" \
-  "You are QA agent <id>. Story under review: <story title>. Read .hive/agents/<id>/context.md and begin." \
+  "You are QA agent <id>. Story under review: <story title>. Prior script-QA failed — see .hive/agents/<prior_qa_id>/qa-fail.log. Read .hive/agents/<id>/context.md and begin." \
   > /dev/null 2>&1 &
 WORKER_PID=$!
 echo $WORKER_PID > .hive/agents/<id>/worker.pid
