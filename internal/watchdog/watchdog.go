@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nikrich/hungry-ghost-hive-v2/assets"
+	"github.com/nikrich/hungry-ghost-hive-v2/internal/mempalace"
 	"github.com/nikrich/hungry-ghost-hive-v2/internal/proc"
 )
 
@@ -90,6 +91,16 @@ func Run(ctx context.Context, opts Options) error {
 			appendLog(watchdogLog, "tick error=%v dur=%s", err, dur)
 		} else {
 			appendLog(watchdogLog, "tick ok dur=%s", dur)
+		}
+
+		// Phase 2.G fix: mirror chroma → disk after every tick so `hive status`
+		// and operator-facing `.md` files reflect the live state. Without this
+		// post-tick sync, the binary's filesystem-rooted view stays frozen at
+		// the last `hive merge` invocation — making the orchestrator look
+		// stuck even while it's making real progress. Errors are non-fatal:
+		// the next merge will still re-sync.
+		if syncErr := mempalace.DumpToFilesystem(opts.WorkspaceRoot); syncErr != nil {
+			appendLog(watchdogLog, "post-tick sync error=%v (continuing)", syncErr)
 		}
 
 		select {
