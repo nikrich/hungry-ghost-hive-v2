@@ -43,9 +43,11 @@ func init() {
 			printBanner(cfg, ws)
 
 			return watchdog.Run(context.Background(), watchdog.Options{
-				WorkspaceRoot:  ws,
-				TickInterval:   time.Duration(cfg.TickIntervalSeconds) * time.Second,
-				ManagerTimeout: time.Duration(cfg.ManagerTimeoutSeconds) * time.Second,
+				WorkspaceRoot:     ws,
+				TickInterval:      time.Duration(cfg.TickIntervalSeconds) * time.Second,
+				ManagerTimeout:    time.Duration(cfg.ManagerTimeoutSeconds) * time.Second,
+				IdleBackoffMax:    time.Duration(cfg.IdleBackoffMaxSeconds) * time.Second,
+				IdleBackoffFactor: cfg.IdleBackoffFactor,
 			})
 		},
 	}

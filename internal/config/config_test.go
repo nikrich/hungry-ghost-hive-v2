@@ -73,6 +73,35 @@ teams: []
 	if cfg.ManagerTimeoutSeconds != 480 {
 		t.Errorf("ManagerTimeoutSeconds default: got %d, want 480", cfg.ManagerTimeoutSeconds)
 	}
+	if cfg.IdleBackoffMaxSeconds != 600 {
+		t.Errorf("IdleBackoffMaxSeconds default: got %d, want 600", cfg.IdleBackoffMaxSeconds)
+	}
+	if cfg.IdleBackoffFactor != 2.0 {
+		t.Errorf("IdleBackoffFactor default: got %v, want 2.0", cfg.IdleBackoffFactor)
+	}
+}
+
+func TestLoad_RespectsIdleBackoffOverrides(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	yaml := `workspace_slug: x
+idle_backoff_max_seconds: 1200
+idle_backoff_factor: 1.5
+teams: []
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.IdleBackoffMaxSeconds != 1200 {
+		t.Errorf("IdleBackoffMaxSeconds: got %d, want 1200", cfg.IdleBackoffMaxSeconds)
+	}
+	if cfg.IdleBackoffFactor != 1.5 {
+		t.Errorf("IdleBackoffFactor: got %v, want 1.5", cfg.IdleBackoffFactor)
+	}
 }
 
 func TestLoad_DefaultsPerTeamTestCommand(t *testing.T) {
