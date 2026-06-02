@@ -160,13 +160,31 @@ func clearMarkdownFiles(dir string) error {
 // sys.stdout nor os.write(1, ...) reaches the real stdout. The original
 // stdout fd is preserved at mempalace.mcp_server._REAL_STDOUT_FD — we
 // write through that to get JSON back to the Go parent.
+// mempalace_list_drawers silently caps each call regardless of the requested
+// limit (observed cap: ~100). Without paging, drawers past the cap silently
+// disappear from the dump — which then makes DumpToFilesystem clear-and-rewrite
+// the rooms with only the truncated subset. Result: `hive merge` reports
+// "no story drawer found" for stories that DO exist in chroma, and operator
+// retro-drawers written on disk get wiped on the next sync. See finding
+// drawer drawer_hive_findings_op_override_2026_06_02.
 const dumpScript = `
 import json, os
 os.environ["MEMPALACE_PALACE_PATH"] = os.environ["WORKSPACE_CHROMA"]
 from mempalace.mcp_server import TOOLS, _REAL_STDOUT_FD
-listed = TOOLS["mempalace_list_drawers"]["handler"](wing="hive", limit=1000)
+PAGE = 100
+all_drawers = []
+offset = 0
+while True:
+    page = TOOLS["mempalace_list_drawers"]["handler"](wing="hive", limit=PAGE, offset=offset)
+    page_drawers = page.get("drawers", [])
+    if not page_drawers:
+        break
+    all_drawers.extend(page_drawers)
+    if len(page_drawers) < PAGE:
+        break
+    offset += len(page_drawers)
 out = []
-for d in listed.get("drawers", []):
+for d in all_drawers:
     full = TOOLS["mempalace_get_drawer"]["handler"](drawer_id=d["drawer_id"])
     if full.get("error"):
         continue
