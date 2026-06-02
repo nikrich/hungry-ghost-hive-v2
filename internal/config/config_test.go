@@ -79,6 +79,15 @@ teams: []
 	if cfg.IdleBackoffFactor != 2.0 {
 		t.Errorf("IdleBackoffFactor default: got %v, want 2.0", cfg.IdleBackoffFactor)
 	}
+	if cfg.ModelForJunior != "claude-haiku-4-5-20251001" {
+		t.Errorf("ModelForJunior default: got %q, want claude-haiku-4-5-20251001", cfg.ModelForJunior)
+	}
+	if cfg.ModelForIntermediate != "claude-sonnet-4-6" {
+		t.Errorf("ModelForIntermediate default: got %q, want claude-sonnet-4-6", cfg.ModelForIntermediate)
+	}
+	if cfg.ModelForSenior != "claude-opus-4-7" {
+		t.Errorf("ModelForSenior default: got %q, want claude-opus-4-7", cfg.ModelForSenior)
+	}
 }
 
 func TestLoad_RespectsIdleBackoffOverrides(t *testing.T) {
@@ -101,6 +110,33 @@ teams: []
 	}
 	if cfg.IdleBackoffFactor != 1.5 {
 		t.Errorf("IdleBackoffFactor: got %v, want 1.5", cfg.IdleBackoffFactor)
+	}
+}
+
+func TestLoad_RespectsModelOverrides(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "config.yaml")
+	yaml := `workspace_slug: x
+model_for_junior: claude-sonnet-4-6
+model_for_intermediate: claude-opus-4-7
+model_for_senior: claude-opus-4-7
+teams: []
+`
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.ModelForJunior != "claude-sonnet-4-6" {
+		t.Errorf("ModelForJunior: got %q, want claude-sonnet-4-6", cfg.ModelForJunior)
+	}
+	if cfg.ModelForIntermediate != "claude-opus-4-7" {
+		t.Errorf("ModelForIntermediate: got %q, want claude-opus-4-7", cfg.ModelForIntermediate)
+	}
+	if cfg.ModelForSenior != "claude-opus-4-7" {
+		t.Errorf("ModelForSenior: got %q, want claude-opus-4-7", cfg.ModelForSenior)
 	}
 }
 

@@ -181,12 +181,14 @@ When the loop exits (either cap reached or no ready stories remain), continue to
 
 **Role routing table:**
 
-| points | role |
-|---|---|
-| 1, 2, 3 | `junior` |
-| 5 | `intermediate` |
-| 8, 13 | `senior` |
-| (anything else) | log a finding (`kind: bug`, "tech-lead emitted non-Fibonacci points value"); skip this story |
+| points | role | model config key |
+|---|---|---|
+| 1, 2, 3 | `junior` | `model_for_junior` |
+| 5 | `intermediate` | `model_for_intermediate` |
+| 8, 13 | `senior` | `model_for_senior` |
+| (anything else) | log a finding (`kind: bug`, "tech-lead emitted non-Fibonacci points value"); skip this story | — |
+
+**Model routing (Phase 2.H):** Each role has its own model so trivial stories don't burn Opus tokens. Read the matching key from `.hive/config.yaml` and pass it to `claude --model` in the spawn below. Defaults: junior → `claude-haiku-4-5-20251001`, intermediate → `claude-sonnet-4-6`, senior → `claude-opus-4-7`. If the key is missing in the config, the loader has already applied these defaults — read whatever is there.
 
 **Worktree creation** (note the explicit base branch — different from P2.A):
 
@@ -227,10 +229,12 @@ criterion BEFORE committing. Commit, push, open a PR, file your outcome to
 mempalace, exit.
 ```
 
-**Spawn (Phase 1.5: pinned MCP config so the mempalace gateway points at workspace-local memory):**
+**Spawn (Phase 1.5: pinned MCP config so the mempalace gateway points at workspace-local memory; Phase 2.H: per-tier model so juniors run on Haiku):**
+
+`<model>` below = the value of the matching `model_for_*` config key (see model routing table above). Read it once from `.hive/config.yaml` at the start of step 3b and substitute per spawn.
 
 ```bash
-nohup claude --print --permission-mode acceptEdits \
+nohup claude --print --model <model> --permission-mode acceptEdits \
   --mcp-config "$(pwd)/.claude/mcp.json" --strict-mcp-config \
   --system-prompt-file "$(pwd)/.claude/skills/<role>.md" \
   "You are agent <id>. Worktree: repos/<team>--<role>-<id>. Read .hive/agents/<id>/context.md and begin." \
@@ -385,6 +389,7 @@ Before you exit, answer:
   - `live_workers < max_workers` at the time of spawn (the loop counter is correct, but double-check)
   - The story's `depends_on` are ALL `merged`
   - I picked the correct role for `story.points` (1-3 → junior, 5 → intermediate, 8/13 → senior)
+  - I passed `--model <model>` to claude using the matching `model_for_<role>` from `.hive/config.yaml` (Phase 2.H)
   - I based the worktree on `story.feature_branch` (or `main` for legacy P2.A stories without that field)?
 - For each QA I spawned (Phase 2.C), did I confirm:
   - `live_qa < max_qa` at the time of spawn

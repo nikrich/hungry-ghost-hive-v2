@@ -24,7 +24,13 @@ type Config struct {
 	ManagerTimeoutSeconds int     `yaml:"manager_timeout_seconds"`
 	IdleBackoffMaxSeconds int     `yaml:"idle_backoff_max_seconds"` // cap for exponential backoff on consecutive idle ticks; set ≤ tick_interval_seconds to disable
 	IdleBackoffFactor     float64 `yaml:"idle_backoff_factor"`      // multiplier per consecutive idle tick
-	Teams                 []Team  `yaml:"teams"`
+	// Per-tier model selection. Manager reads these from config.yaml and passes
+	// them to `claude --print --model <id>` when spawning workers, so trivial
+	// 1-2pt stories run on Haiku instead of the operator's default Opus/Sonnet.
+	ModelForJunior       string `yaml:"model_for_junior"`
+	ModelForIntermediate string `yaml:"model_for_intermediate"`
+	ModelForSenior       string `yaml:"model_for_senior"`
+	Teams                []Team `yaml:"teams"`
 }
 
 // Load reads, parses, validates, and applies defaults to a config file.
@@ -74,6 +80,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.IdleBackoffFactor == 0 {
 		c.IdleBackoffFactor = 2.0
+	}
+	if c.ModelForJunior == "" {
+		c.ModelForJunior = "claude-haiku-4-5-20251001"
+	}
+	if c.ModelForIntermediate == "" {
+		c.ModelForIntermediate = "claude-sonnet-4-6"
+	}
+	if c.ModelForSenior == "" {
+		c.ModelForSenior = "claude-opus-4-7"
 	}
 	for i := range c.Teams {
 		if c.Teams[i].TestCommand == "" {
